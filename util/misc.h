@@ -2,6 +2,8 @@
 #ifndef MISC_INCLUDED_H
 #define MISC_INCLUDED_H
 
+#define TO_STR(x) #x
+
 typedef void *any_t;
 typedef void (*free_t)(any_t);
 
