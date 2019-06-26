@@ -1,7 +1,7 @@
 #include "uf.h"
 
 #define OF_ID(x) ((void *)(size_t)(x))
-#define TO_ID(x) ((int)(size_t)(x))
+#define TO_ID(x) ((uf_id_t)(size_t)(x))
 
 uf_t uf_new() { return (uf_t) { .ids = vec_new(), .keys = vec_new() }; }
 
@@ -18,10 +18,8 @@ uf_id_t uf_fresh(uf_t u, any_t k) {
 }
 
 uf_id_t uf_find(uf_t u, uf_id_t i) {
-  while (OF_ID(i) != u.ids[i]) {
-    u.ids[i] = OF_ID(u.ids[TO_ID(u.ids[i])]);
-    i = TO_ID(u.ids[i]);
-  }
+  while (OF_ID(i) != u.ids[i])
+    i = TO_ID(u.ids[i] = OF_ID(u.ids[TO_ID(u.ids[i])]));
   return i;
 }
 
