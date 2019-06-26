@@ -5,9 +5,9 @@
 
 #include "misc.h"
 #include "vec.h"
+#include <stddef.h>
 
-// IDs point to their parents
-typedef void **uf_id_t;
+typedef int uf_id_t;
 
 typedef struct uf_t {
   vec_t ids; // ID tree
