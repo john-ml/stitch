@@ -10,7 +10,7 @@ typedef struct raw_t {
 
 // Convert to and from raw_t and vec_t
 
-vec_t *of_raw(raw_t v) { return &v->data; }
+vec_t of_raw(raw_t v) { return &v->data; }
 
 struct raw_t dummy_vec;
 int const magic_gap = (char *)&dummy_vec.data - (char *)&dummy_vec;
