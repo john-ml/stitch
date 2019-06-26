@@ -2,11 +2,13 @@
 #ifndef PAIR_INCLUDED_H
 #define PAIR_INCLUDED_H
 
+#include "misc.h"
+
 typedef struct {
-  void *a;
-  void *b;
+  any_t a;
+  any_t b;
 } *pair_t;
 
-pair_t pair_new(void *a, void *b);
+pair_t pair_new(any_t a, any_t b);
 
 #endif // PAIR_INCLUDED_H
