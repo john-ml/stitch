@@ -1,0 +1,8 @@
+quadruple(x: int): int =
+  y: int = x + x;
+  z: int = x * 2;
+  y + z
+
+octuple(z: int): int =
+  z: int = quadruple(x);
+  z + z
