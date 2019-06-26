@@ -1,23 +1,20 @@
 #include "vec.h"
-#include <stdio.h>
+#include <stdlib.h>
 
-typedef struct vec_t {
+// Stuff length / capacity information in before the 'actual vector'
+typedef struct raw_t {
   int len;
   int cap;
   any_t data[0];
 } *raw_t;
 
-struct vec_t const dummy_vec = 
-  (struct vec_t) {
-    .len = 0, 
-    .cap = 0, 
-    .data = 0
-  };
-int const magic_gap = (char *)&dummy_vec.data - (char *)&dummy_vec;
-
-raw_t to_raw(vec_t v) { return (raw_t)((char *)v - magic_gap); }
+// Convert to and from raw_t and vec_t
 
 vec_t *of_raw(raw_t v) { return &v->data; }
+
+struct raw_t dummy_vec;
+int const magic_gap = (char *)&dummy_vec.data - (char *)&dummy_vec;
+raw_t to_raw(vec_t v) { return (raw_t)((char *)v - magic_gap); }
 
 vec_t vec_create(int cap) {
   raw_t v = malloc(sizeof(*v) + cap*sizeof(any_t));
@@ -26,10 +23,9 @@ vec_t vec_create(int cap) {
   return of_raw(v);
 }
 
-vec_t vec_new() { puts("vec_new"); return vec_create(8); }
+vec_t vec_new() { return vec_create(8); }
 
-vec_t vec_sing(void *x) {
-  printf("vec_sing %p\n", x);
+vec_t vec_sing(any_t x) {
   vec_t v = vec_new();
   vec_add(&v, x);
   return v;
@@ -48,7 +44,6 @@ void vec_expand(vec_t *v) { to_raw(*v)->len *= 2; vec_realloc(v); }
 void vec_contract(vec_t *v) { to_raw(*v)->len /= 2; vec_realloc(v); }
 
 void vec_add(vec_t *v, any_t x) {
-  printf("vec_add %p\n", x);
   if (vec_len(*v) == vec_cap(*v))
     vec_expand(v);
   raw_t w = to_raw(*v);
@@ -65,6 +60,6 @@ any_t vec_pop(vec_t *v) {
 void vec_free(vec_t v, free_t f) {
   raw_t w = to_raw(v);
   for (int i = w->len; i--;)
-    free(v[i]);
+    f(v[i]);
   free(w);
 }
