@@ -1,3 +1,4 @@
-f(x: int): int =
-  y: int = x + 1;
-  y
+nested(x: int): int = (
+  x := x;
+  x
+)

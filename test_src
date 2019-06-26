@@ -1,4 +1,4 @@
-quadruple(x: int): int =
+quadruple(x: int): int = 
   y: int = x + x;
   z: int = x * 2;
   y + z
@@ -6,3 +6,30 @@ quadruple(x: int): int =
 octuple(z: int): int =
   z: int = quadruple(x);
   z + z
+
+deref(p: *int): int = *p
+
+proj(p: {x: int, y: int}): int = p.x
+
+index(p: **int, i: int): int = p[i][i]
+
+dup(x: int): {l: int, r: int} =
+  {l = x, r = x}
+
+inl(x: int): <l: int, r: int> =
+  l@x
+
+inr(x: int): <l: int, r: int> =
+  r@x
+
+nested(x: int): int =
+  y: int = (
+    z: int = x + x;
+    z := z + 2;
+    z
+  );
+  y + y
+
+main(argc: int, argv: **char): void =
+  print("hello, world\n")
+
