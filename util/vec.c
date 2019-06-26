@@ -1,5 +1,6 @@
 #include "vec.h"
 #include <stdlib.h>
+#include <stddef.h>
 
 // Stuff length / capacity information in before the 'actual vector'
 typedef struct raw_t {
@@ -9,12 +10,10 @@ typedef struct raw_t {
 } *raw_t;
 
 // Convert to and from raw_t and vec_t
-
-vec_t of_raw(raw_t v) { return &v->data; }
-
-struct raw_t dummy_vec;
-int const magic_gap = (char *)&dummy_vec.data - (char *)&dummy_vec;
-raw_t to_raw(vec_t v) { return (raw_t)((char *)v - magic_gap); }
+vec_t of_raw(raw_t v) { return (vec_t)&v->data; }
+raw_t to_raw(vec_t v) { 
+  return (raw_t)((char *)v - offsetof(struct raw_t, data)); 
+}
 
 vec_t vec_create(int cap) {
   raw_t v = malloc(sizeof(*v) + cap*sizeof(any_t));
