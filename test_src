@@ -32,3 +32,9 @@ nested(x: int): int =
 
 main(argc: int, argv: **char): void =
   print("hello, world\n")
+
+extract(xy: <l: int, r: int>): int =
+  case xy
+  | l@x -> x
+  | r@y -> y
+  end

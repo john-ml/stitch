@@ -16,6 +16,7 @@ typedef enum {
   EXP_UOP, EXP_BOP,
   EXP_PROJ, EXP_INDEX, EXP_CALL,
   EXP_RECORD, EXP_VARIANT,
+  EXP_MATCH, EXP_ARM,
   EXP_VEC, EXP_PAIR
 } node_tag_t;
 #define REC struct node_t *
@@ -47,6 +48,9 @@ typedef struct node_t {
     vec_t record;
     struct { char *name; REC e; } variant;
 
+    struct { REC e; vec_t arms; } match;
+    struct { char *ctr, *x; REC e; } arm;
+
     vec_t vec;
     pair_t pair;
   } as;
@@ -72,6 +76,8 @@ node_t node_index(node_t e, node_t i);
 node_t node_call(node_t f, vec_t args);
 node_t node_record(vec_t fields);
 node_t node_variant(char *name, node_t e);
+node_t node_match(node_t e, vec_t arms);
+node_t node_arm(char *ctr, char *x, node_t e);
 node_t node_vec(vec_t v);
 node_t node_pair(pair_t p);
 void node_free(node_t e);

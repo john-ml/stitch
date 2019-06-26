@@ -22,6 +22,8 @@ FILE *yyin;
 %token STR
 %token ID
 %token ASGN
+%token CASE
+%token END
 %token RARROW
 %right RARROW
 %left '+'
@@ -70,19 +72,30 @@ ty_fields :                        { $$ = node_vec(vec_new()); }
 
 ty_field : ID ':' type { $$ = node_pair(pair_new($1->as.id, $3)); free($1); }
 
-expr : ID | NUM | STR       { $$ = $1; }
-     | expr '+' expr        { $$ = node_bop($1, BOP_ADD, $3); }
-     | expr '*' expr        { $$ = node_bop($1, BOP_MUL, $3); }
-     | '-' expr %prec NEG   { $$ = node_uop(UOP_NEG, $2); }
-     | '*' expr %prec DEREF { $$ = node_uop(UOP_DEREF, $2); }
-     | '&' expr %prec REF   { $$ = node_uop(UOP_REF, $2); }
-     | expr '.' ID          { $$ = node_proj($1, $3->as.id); free($3); }
-     | '(' body ')'         { $$ = $2; }
-     | '(' expr ')'         { $$ = $2; }
-     | expr '[' expr ']'    { $$ = node_index($1, $3); }
-     | expr '(' exprs ')'   { $$ = node_call($1, $3->as.vec); free($3); }
-     | '{' fields '}'       { $$ = node_record($2->as.vec); free($2); }
-     | ID '@' expr          { $$ = node_variant($1->as.id, $3); free($1); }
+expr : ID | NUM | STR        { $$ = $1; }
+     | expr '+' expr         { $$ = node_bop($1, BOP_ADD, $3); }
+     | expr '*' expr         { $$ = node_bop($1, BOP_MUL, $3); }
+     | '-' expr %prec NEG    { $$ = node_uop(UOP_NEG, $2); }
+     | '*' expr %prec DEREF  { $$ = node_uop(UOP_DEREF, $2); }
+     | '&' expr %prec REF    { $$ = node_uop(UOP_REF, $2); }
+     | expr '.' ID           { $$ = node_proj($1, $3->as.id); free($3); }
+     | '(' body ')'          { $$ = $2; }
+     | '(' expr ')'          { $$ = $2; }
+     | expr '[' expr ']'     { $$ = node_index($1, $3); }
+     | expr '(' exprs ')'    { $$ = node_call($1, $3->as.vec); free($3); }
+     | '{' fields '}'        { $$ = node_record($2->as.vec); free($2); }
+     | ID '@' expr           { $$ = node_variant($1->as.id, $3); free($1); }
+     | CASE expr arms END    { $$ = node_match($2, $3->as.vec); free($3); }
+
+arms : '{' '}'              { $$ = node_vec(vec_new()); }
+     | arm                  { $$ = node_vec(vec_sing($1)); }
+     | arms arm             { vec_add($1->as.vec, $2); $$ = $1; }
+
+arm : '|' ID '@' ID RARROW fn_body {
+  $$ = node_arm($2->as.id, $4->as.id, $6);
+  free($2);
+  free($4);
+}
 
 fields :                  { $$ = node_vec(vec_new()); }
        | field            { $$ = node_vec(vec_sing($1->as.pair)); free($1); }

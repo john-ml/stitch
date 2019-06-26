@@ -158,6 +158,23 @@ node_t node_variant(char *name, node_t e) {
   return r;
 }
 
+node_t node_match(node_t e, vec_t arms) {
+  node_t r = malloc(sizeof(*r));
+  r->is = EXP_MATCH;
+  r->as.match.e = e;
+  r->as.match.arms = arms;
+  return r;
+}
+
+node_t node_arm(char *ctr, char *x, node_t e) {
+  node_t r = malloc(sizeof(*r));
+  r->is = EXP_ARM;
+  r->as.arm.ctr = ctr;
+  r->as.arm.x = x;
+  r->as.arm.e = e;
+  return r;
+}
+
 node_t node_vec(vec_t v) {
   puts("node_vec");
   node_t e = malloc(sizeof(*e));
@@ -268,6 +285,17 @@ void node_free(node_t e) {
       free(e->as.variant.name);
       node_free(e->as.variant.e);
     break;
+    case EXP_MATCH:
+      node_free(e->as.match.e);
+      for (int i = 0; i < vec_len(e->as.match.arms); ++i)
+        node_free(e->as.match.arms->data[i]);
+      vec_free(e->as.match.arms);
+    break;
+    case EXP_ARM:
+      free(e->as.arm.ctr);
+      free(e->as.arm.x);
+      node_free(e->as.arm.e);
+    break;
   } 
   free(e);
 }
@@ -294,19 +322,23 @@ void bop_pp(FILE *fp, bop_t op) {
 }
 
 void node_pp_(FILE *fp, node_t e, int lvl);
-void node_pp_rhs(FILE *fp, node_t e, int lvl) {
+void node_pp_rhs(FILE *fp, node_t e, int lvl, int semi) {
   switch (e->is) {
     case EXP_BODY:
       fputc('(', fp);
       node_pp_newline(fp, lvl + 2);
       node_pp_(fp, e, lvl + 2);
       node_pp_newline(fp, lvl);
-      fprintf(fp, ");");
+      if (semi)
+        fprintf(fp, ");");
+      else
+        fputc(')', fp);
       node_pp_newline(fp, lvl);
     break;
     default:
       node_pp_(fp, e, lvl);
-      fputc(';', fp);
+      if (semi)
+        fputc(';', fp);
       node_pp_newline(fp, lvl);
   }
 }
@@ -338,12 +370,12 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
       fprintf(fp, "%s: ", e->as.let.x);
       node_pp_(fp, e->as.let.t, lvl);
       fprintf(fp, " = ");
-      node_pp_rhs(fp, e->as.let.e, lvl);
+      node_pp_rhs(fp, e->as.let.e, lvl, 1);
     break;
     case EXP_SET:
       node_pp_(fp, e->as.set.x, lvl);
       fprintf(fp, " := ");
-      node_pp_rhs(fp, e->as.set.e, lvl);
+      node_pp_rhs(fp, e->as.set.e, lvl, 1);
     break;
     case EXP_BODY:
       for (int i = 0; i < vec_len(e->as.body.stmts); ++i)
@@ -441,6 +473,19 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
       fprintf(fp, "%s@(", e->as.variant.name);
       node_pp_(fp, e->as.variant.e, lvl);
       fputc(')', fp);
+    break;
+    case EXP_MATCH:
+      fprintf(fp, "case ");
+      node_pp_(fp, e->as.match.e, lvl);
+      node_pp_newline(fp, lvl);
+      for (int i = 0; i < vec_len(e->as.match.arms); ++i)
+        node_pp_(fp, e->as.match.arms->data[i], lvl);
+      fprintf(fp, "end");
+      node_pp_newline(fp, lvl);
+    break;
+    case EXP_ARM:
+      fprintf(fp, "| %s@%s -> ", e->as.arm.ctr, e->as.arm.x);
+      node_pp_rhs(fp, e->as.arm.e, lvl, 0);
     break;
   }
 }

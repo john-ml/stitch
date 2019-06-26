@@ -33,15 +33,17 @@ char *yytextunescape() {
 %}
 %option yylineno
 %%
-[1-9][0-9]*           yylval = node_num(atoi(yytext)); return NUM;
-[a-zA-Z][a-zA-Z0-9_]* yylval = node_id(yytextcpy()); return ID;
-\"(\\.|[^\\"])*\"     yylval = node_str(yytextunescape()); return STR;
+[|<>@=:;,*&+.\[\](){}]        return yytext[0];
+:=                            return ASGN;
+->                            return RARROW;
+case                          return CASE;
+end                           return END;
 
-[<>@=:;,*&+.\[\](){}] return yytext[0];
-:=                    return ASGN;
-->                    return RARROW;
+[1-9][0-9]*                   yylval = node_num(atoi(yytext)); return NUM;
+[a-zA-Z][a-zA-Z0-9_]*         yylval = node_id(yytextcpy()); return ID;
+\"(\\.|[^\\"])*\"             yylval = node_str(yytextunescape()); return STR;
 
-[ \t\r]               ;
+[ \t\r]                       ;
 
-\n                    ;
+\n                            ;
 
