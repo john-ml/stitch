@@ -9,3 +9,8 @@ pair_t pair_new(any_t a, any_t b) {
   return p;
 }
 
+void pair_free(pair_t p, free_t f, free_t g) {
+  f(p->a);
+  g(p->b);
+  free(p);
+}

@@ -1,4 +1,3 @@
-#include "pair.h"
 #include "ast.h"
 #include <stdlib.h>
 #include <stdio.h>
@@ -191,22 +190,14 @@ node_t node_pair(pair_t p) {
   return e;
 }
 
+void field_free(pair_t id_exp) { pair_free(id_exp, free, node_free); }
+
 void node_free(node_t e) {
   switch (e->is) {
-    case EXP_PRGM:
-      for (int i = 0; i < vec_len(e->as.prgm); ++i)
-        node_free(e->as.prgm->data[i]);
-      vec_free(e->as.prgm);
-    break;
+    case EXP_PRGM: vec_free(e->as.prgm, node_free); break;
     case EXP_FUNC:
       free(e->as.func.f);
-      for (int i = 0; i < vec_len(e->as.func.args); ++i) {
-        pair_t p = e->as.func.args->data[i];
-        free(p->a);
-        node_free(p->b);
-        free(p);
-      }
-      vec_free(e->as.func.args);
+      vec_free(e->as.func.args, field_free);
       node_free(e->as.func.ret);
       node_free(e->as.func.body);
     break;
@@ -220,34 +211,14 @@ void node_free(node_t e) {
       node_free(e->as.set.e);
     break;
     case EXP_BODY:
-      for (int i = 0; i < vec_len(e->as.body.stmts); ++i)
-        node_free(e->as.body.stmts->data[i]);
-      vec_free(e->as.body.stmts);
+      vec_free(e->as.body.stmts, node_free);
       node_free(e->as.body.ret);
     break;
-    case EXP_TY_RECORD:
-      for (int i = 0; i < vec_len(e->as.ty_record); ++i) {
-        pair_t p = e->as.ty_record->data[i];
-        free(p->a);
-        node_free(p->b);
-        free(p);
-      }
-      vec_free(e->as.ty_record);
-    break;
-    case EXP_TY_VARIANT:
-      for (int i = 0; i < vec_len(e->as.ty_variant); ++i) {
-        pair_t p = e->as.ty_variant->data[i];
-        free(p->a);
-        node_free(p->b);
-        free(p);
-      }
-      vec_free(e->as.ty_variant);
-    break;
+    case EXP_TY_RECORD: vec_free(e->as.ty_record, field_free); break;
+    case EXP_TY_VARIANT: vec_free(e->as.ty_variant, field_free); break;
     case EXP_TY_PTR: node_free(e->as.ty_ptr); break;
     case EXP_FPTR:
-      for (int i = 0; i < vec_len(e->as.fptr.args); ++i)
-        node_free(e->as.fptr.args->data[i]);
-      vec_free(e->as.fptr.args);
+      vec_free(e->as.fptr.args, node_free);
       node_free(e->as.fptr.ret);
     break;
     case EXP_ID: free(e->as.id); break;
@@ -268,18 +239,10 @@ void node_free(node_t e) {
     break;
     case EXP_CALL:
       node_free(e->as.call.f);
-      for (int i = 0; i < vec_len(e->as.call.args); ++i)
-        node_free(e->as.call.args->data[i]);
-      vec_free(e->as.call.args);
+      vec_free(e->as.call.args, node_free);
     break;
     case EXP_RECORD:
-      for (int i = 0; i < vec_len(e->as.record); ++i) {
-        pair_t p = e->as.record->data[i];
-        free(p->a);
-        node_free(p->b);
-        free(p);
-      }
-      vec_free(e->as.record);
+      vec_free(e->as.record, field_free);
     break;
     case EXP_VARIANT:
       free(e->as.variant.name);
@@ -287,9 +250,7 @@ void node_free(node_t e) {
     break;
     case EXP_MATCH:
       node_free(e->as.match.e);
-      for (int i = 0; i < vec_len(e->as.match.arms); ++i)
-        node_free(e->as.match.arms->data[i]);
-      vec_free(e->as.match.arms);
+      vec_free(e->as.match.arms, node_free);
     break;
     case EXP_ARM:
       free(e->as.arm.ctr);
@@ -347,14 +308,14 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
   switch (e->is) {
     case EXP_PRGM:
       for (int i = 0; i < vec_len(e->as.prgm); ++i) {
-        node_pp_(fp, e->as.prgm->data[i], lvl);
+        node_pp_(fp, e->as.prgm[i], lvl);
         node_pp_newline(fp, lvl);
       }
     break;
     case EXP_FUNC:
       fprintf(fp, "%s(", e->as.func.f);
       for (int i = 0; i < vec_len(e->as.func.args); ++i) {
-        pair_t p = e->as.func.args->data[i];
+        pair_t p = e->as.func.args[i];
         fprintf(fp, "%s: ", (char *)(p->a));
         node_pp_(fp, p->b, lvl);
         if (i < vec_len(e->as.func.args) - 1)
@@ -379,13 +340,13 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
     break;
     case EXP_BODY:
       for (int i = 0; i < vec_len(e->as.body.stmts); ++i)
-        node_pp_(fp, e->as.body.stmts->data[i], lvl);
+        node_pp_(fp, e->as.body.stmts[i], lvl);
       node_pp_(fp, e->as.body.ret, lvl);
     break;
     case EXP_TY_RECORD:
       fputc('{', fp);
       for (int i = 0; i < vec_len(e->as.ty_record); ++i) {
-        pair_t p = e->as.ty_record->data[i];
+        pair_t p = e->as.ty_record[i];
         fprintf(fp, "%s: ", (char *)p->a);
         node_pp_(fp, p->b, lvl);
         if (i < vec_len(e->as.ty_record) - 1)
@@ -396,7 +357,7 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
     case EXP_TY_VARIANT:
       fputc('<', fp);
       for (int i = 0; i < vec_len(e->as.ty_variant); ++i) {
-        pair_t p = e->as.ty_variant->data[i];
+        pair_t p = e->as.ty_variant[i];
         fprintf(fp, "%s: ", (char *)p->a);
         node_pp_(fp, p->b, lvl);
         if (i < vec_len(e->as.ty_variant) - 1)
@@ -411,7 +372,7 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
     case EXP_FPTR:
       fputc('(', fp);
       for (int i = 0; i < vec_len(e->as.fptr.args); ++i) {
-        node_pp_(fp, e->as.fptr.args->data[i], lvl);
+        node_pp_(fp, e->as.fptr.args[i], lvl);
         if (i < vec_len(e->as.fptr.args) - 1)
           fprintf(fp, ", ");
       }
@@ -452,7 +413,7 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
       node_pp_(fp, e->as.call.f, lvl);
       fputc('(', fp);
       for (int i = 0; i < vec_len(e->as.call.args); ++i) {
-        node_pp_(fp, e->as.call.args->data[i], lvl);
+        node_pp_(fp, e->as.call.args[i], lvl);
         if (i < vec_len(e->as.call.args) - 1)
           fprintf(fp, ", ");
       }
@@ -461,7 +422,7 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
     case EXP_RECORD:
       fputc('{', fp);
       for (int i = 0; i < vec_len(e->as.record); ++i) {
-        pair_t p = e->as.record->data[i];
+        pair_t p = e->as.record[i];
         fprintf(fp, "%s: ", (char *)p->a);
         node_pp_(fp, p->b, lvl);
         if (i < vec_len(e->as.record) - 1)
@@ -479,7 +440,7 @@ void node_pp_(FILE *fp, node_t e, int lvl) {
       node_pp_(fp, e->as.match.e, lvl);
       node_pp_newline(fp, lvl);
       for (int i = 0; i < vec_len(e->as.match.arms); ++i)
-        node_pp_(fp, e->as.match.arms->data[i], lvl);
+        node_pp_(fp, e->as.match.arms[i], lvl);
       fprintf(fp, "end");
       node_pp_newline(fp, lvl);
     break;
