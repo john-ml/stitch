@@ -1,3 +1,5 @@
+#include "uf.h"
+
 uf_t uf_new() { return (uf_t) { .ids = vec_new(), .keys = vec_new() }; }
 
 void uf_free(uf_t u, free_t f) { 
@@ -6,16 +8,15 @@ void uf_free(uf_t u, free_t f) {
 }
 
 uf_id_t uf_fresh(uf_t u, any_t k) {
-  int n = vec_len(u.ids);
   uf_id_t r = u.ids + vec_len(u.ids);
-  vec_add(u.ids, r);
-  vec_add(u.keys, k);
+  vec_add(&u.ids, r);
+  vec_add(&u.keys, k);
   return r;
 }
 
 uf_id_t uf_find(uf_t u, uf_id_t p) {
   while (p != *p)
-    p = *p = **p;
+    p = *p = **(void ***)p;
   return p;
 }
 

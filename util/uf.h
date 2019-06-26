@@ -7,7 +7,7 @@
 #include "vec.h"
 
 // IDs point to their parents
-typedef void *uf_id_t;
+typedef void **uf_id_t;
 
 typedef struct uf_t {
   vec_t ids; // ID tree
