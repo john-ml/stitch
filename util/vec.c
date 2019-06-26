@@ -1,12 +1,29 @@
 #include "vec.h"
 #include <stdio.h>
 
+typedef struct vec_t {
+  int len;
+  int cap;
+  any_t data[0];
+} *raw_t;
+
+struct vec_t const dummy_vec = 
+  (struct vec_t) {
+    .len = 0, 
+    .cap = 0, 
+    .data = 0
+  };
+int const magic_gap = (char *)&dummy_vec.data - (char *)&dummy_vec;
+
+raw_t to_raw(vec_t v) { return (raw_t)((char *)v - magic_gap); }
+
+vec_t *of_raw(raw_t v) { return &v->data; }
+
 vec_t vec_create(int cap) {
-  vec_t v = malloc(sizeof(*v));
+  raw_t v = malloc(sizeof(*v) + cap*sizeof(any_t));
   v->len = 0;
   v->cap = cap;
-  v->data = malloc(8 * cap);
-  return v;
+  return of_raw(v);
 }
 
 vec_t vec_new() { puts("vec_new"); return vec_create(8); }
@@ -14,32 +31,40 @@ vec_t vec_new() { puts("vec_new"); return vec_create(8); }
 vec_t vec_sing(void *x) {
   printf("vec_sing %p\n", x);
   vec_t v = vec_new();
-  vec_add(v, x);
+  vec_add(&v, x);
   return v;
 }
 
-int vec_len(vec_t v) { return v->len; }
-int vec_cap(vec_t v) { return v->cap; }
+int vec_len(vec_t v) { return to_raw(v)->len; }
+int vec_cap(vec_t v) { return to_raw(v)->cap; }
 
-void vec_realloc(vec_t v) { v->data = realloc(v->data, 8*v->cap); }
+void vec_realloc(vec_t *v) { 
+  raw_t w = to_raw(*v);
+  w = realloc(w, sizeof(*w) + w->cap*sizeof(any_t));
+  *v = of_raw(w);
+}
 
-void vec_expand(vec_t v) { v->cap *= 2; vec_realloc(v); }
-void vec_contract(vec_t v) { v->cap /= 2; vec_realloc(v); }
+void vec_expand(vec_t *v) { to_raw(*v)->len *= 2; vec_realloc(v); }
+void vec_contract(vec_t *v) { to_raw(*v)->len /= 2; vec_realloc(v); }
 
-void vec_add(vec_t v, void *x) {
+void vec_add(vec_t *v, any_t x) {
   printf("vec_add %p\n", x);
-  if (v->len == v->cap)
+  if (vec_len(*v) == vec_cap(*v))
     vec_expand(v);
-  v->data[v->len++] = x;
+  raw_t w = to_raw(*v);
+  w->data[w->len++] = x;
 }
 
-void *vec_pop(vec_t v) {
-  if (v->len < v->cap / 4)
+any_t vec_pop(vec_t *v) {
+  if (vec_len(*v) < vec_cap(*v) / 4)
     vec_contract(v);
-  return v->data[--v->len];
+  raw_t w = to_raw(*v);
+  return w->data[--w->len];
 }
 
-void vec_free(vec_t v) {
-  free(v->data);
-  free(v);
+void vec_free(vec_t v, free_t f) {
+  raw_t w = to_raw(v);
+  for (int i = w->len; i--;)
+    free(v[i]);
+  free(w);
 }
