@@ -32,4 +32,3 @@ nested(x: int): int =
 
 main(argc: int, argv: **char): void =
   print("hello, world\n")
-
