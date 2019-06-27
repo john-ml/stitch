@@ -3,6 +3,7 @@
 #define VEC_INCLUDED_H
 
 #include "misc.h"
+#include <stddef.h>
 
 // A vector 'magically' behaves like a normal pointer
 // For any vec_t v, v[i] = ith element of v
@@ -33,9 +34,19 @@ void vec_add(vec_t *v, any_t x);
 any_t vec_pop(vec_t *v);
 
 // Force v[i] = x, expanding v as needed
-void vec_ins(vec_t *v, int i, any_t x);
+// Return old value of v[i]
+any_t vec_put(vec_t *v, int i, any_t x);
 
 // f frees items
 void vec_del(vec_t v, del_t f);
+
+#define VEC_FOR(v, i, n, x) \
+  for ( \
+    any_t \
+      i = (any_t)0, \
+      n = (any_t)(size_t)vec_len(v), \
+      x; \
+    x = (v)[(size_t)i], (size_t)i < (size_t)n; \
+    ++i)
 
 #endif // VEC_INCLUDED_H

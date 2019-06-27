@@ -196,16 +196,16 @@ void node_pp_field(stab_t t, FILE *fp, pair_t id_e, int lvl, char const *sep) {
 void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
   switch (e->is) {
     case EXP_PRGM:
-      for (int i = 0; i < vec_len(e->as.prgm); ++i) {
-        node_pp_(t, fp, e->as.prgm[i], lvl);
+      VEC_FOR(e->as.prgm, i, n, func) {
+        node_pp_(t, fp, func, lvl);
         node_pp_newline(fp, lvl);
       }
     break;
     case EXP_FUNC:
       fprintf(fp, "%s(", stab_get(t, e->as.func.f));
-      for (int i = 0; i < vec_len(e->as.func.args); ++i) {
-        node_pp_field(t, fp, e->as.func.args[i], lvl, ": ");
-        if (i < vec_len(e->as.func.args) - 1)
+      VEC_FOR(e->as.func.args, i, n, arg) {
+        node_pp_field(t, fp, arg, lvl, ": ");
+        if (i < n - 1)
           fprintf(fp, ", ");
       }
       fprintf(fp, ")");
@@ -232,24 +232,24 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
       node_pp_rhs(t, fp, e->as.set.e, lvl, 1);
     break;
     case EXP_BODY:
-      for (int i = 0; i < vec_len(e->as.body.stmts); ++i)
-        node_pp_(t, fp, e->as.body.stmts[i], lvl);
+      VEC_FOR(e->as.body.stmts, i, n, stmt)
+        node_pp_(t, fp, stmt, lvl);
       node_pp_(t, fp, e->as.body.ret, lvl);
     break;
     case EXP_TY_RECORD:
       fputc('{', fp);
-      for (int i = 0; i < vec_len(e->as.ty_record); ++i) {
-        node_pp_field(t, fp, e->as.ty_record[i], lvl, ": ");
-        if (i < vec_len(e->as.ty_record) - 1)
+      VEC_FOR(e->as.ty_record, i, n, field) {
+        node_pp_field(t, fp, field, lvl, ": ");
+        if (i < n - 1)
           fprintf(fp, ", ");
       }
       fputc('}', fp);
     break;
     case EXP_TY_VARIANT:
       fputc('<', fp);
-      for (int i = 0; i < vec_len(e->as.ty_variant); ++i) {
-        node_pp_field(t, fp, e->as.ty_variant[i], lvl, ": ");
-        if (i < vec_len(e->as.ty_variant) - 1)
+      VEC_FOR(e->as.ty_variant, i, n, field) {
+        node_pp_field(t, fp, field, lvl, ": ");
+        if (i < n - 1)
           fprintf(fp, ", ");
       }
       fputc('>', fp);
@@ -260,9 +260,9 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
     break;
     case EXP_FPTR:
       fputc('(', fp);
-      for (int i = 0; i < vec_len(e->as.fptr.args); ++i) {
-        node_pp_(t, fp, e->as.fptr.args[i], lvl);
-        if (i < vec_len(e->as.fptr.args) - 1)
+      VEC_FOR(e->as.fptr.args, i, n, arg) {
+        node_pp_(t, fp, arg, lvl);
+        if (i < n - 1)
           fprintf(fp, ", ");
       }
       fprintf(fp, ") -> ");
@@ -301,18 +301,18 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
     case EXP_CALL:
       node_pp_(t, fp, e->as.call.f, lvl);
       fputc('(', fp);
-      for (int i = 0; i < vec_len(e->as.call.args); ++i) {
-        node_pp_(t, fp, e->as.call.args[i], lvl);
-        if (i < vec_len(e->as.call.args) - 1)
+      VEC_FOR(e->as.call.args, i, n, arg) {
+        node_pp_(t, fp, arg, lvl);
+        if (i < n - 1)
           fprintf(fp, ", ");
       }
       fputc(')', fp);
     break;
     case EXP_RECORD:
       fputc('{', fp);
-      for (int i = 0; i < vec_len(e->as.record); ++i) {
-        node_pp_field(t, fp, e->as.ty_variant[i], lvl, " = ");
-        if (i < vec_len(e->as.record) - 1)
+      VEC_FOR(e->as.record, i, n, field) {
+        node_pp_field(t, fp, field, lvl, " = ");
+        if (i < n - 1)
           fprintf(fp, ", ");
       }
       fputc('}', fp);
@@ -326,8 +326,8 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
       fprintf(fp, "case ");
       node_pp_(t, fp, e->as.match.e, lvl);
       node_pp_newline(fp, lvl);
-      for (int i = 0; i < vec_len(e->as.match.arms); ++i)
-        node_pp_(t, fp, e->as.match.arms[i], lvl);
+      VEC_FOR(e->as.match.arms, i, n, arm)
+        node_pp_(t, fp, arm, lvl);
       fprintf(fp, "end");
       node_pp_newline(fp, lvl);
     break;
