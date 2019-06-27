@@ -3,7 +3,6 @@
 #include <stdio.h>
 
 node_t node_prgm(vec_t funcs) {
-  puts("node_prgm");
   node_t e = malloc(sizeof(*e));
   e->is = EXP_PRGM;
   e->as.prgm = funcs;
@@ -11,7 +10,6 @@ node_t node_prgm(vec_t funcs) {
 }
 
 node_t node_func(char *f, vec_t args, node_t ret, node_t body) {
-  puts("node_func");
   node_t e = malloc(sizeof(*e));
   e->is = EXP_FUNC;
   e->as.func.f = f;
@@ -22,7 +20,6 @@ node_t node_func(char *f, vec_t args, node_t ret, node_t body) {
 }
 
 node_t node_let(char *x, node_t t, node_t e) {
-  puts("node_let");
   node_t r = malloc(sizeof(*r));
   r->is = EXP_LET;
   r->as.let.x = x;
@@ -32,7 +29,6 @@ node_t node_let(char *x, node_t t, node_t e) {
 }
 
 node_t node_set(node_t x, node_t e) {
-  printf("node_set %p %p\n", x, e);
   node_t r = malloc(sizeof(*r));
   r->is = EXP_SET;
   r->as.set.x = x;
@@ -41,7 +37,6 @@ node_t node_set(node_t x, node_t e) {
 }
 
 node_t node_body(vec_t stmts, node_t ret) {
-  puts("node_body");
   node_t r = malloc(sizeof(*r));
   r->is = EXP_BODY;
   r->as.body.stmts = stmts;
@@ -79,7 +74,6 @@ node_t node_fptr(vec_t args, node_t ret) {
 }
 
 node_t node_id(char *id) {
-  printf("node_id %s\n", id);
   node_t r = malloc(sizeof(*r));
   r->is = EXP_ID;
   r->as.id = id;
@@ -87,7 +81,6 @@ node_t node_id(char *id) {
 }
 
 node_t node_str(char *str) {
-  printf("node_str %s\n", str);
   node_t r = malloc(sizeof(*r));
   r->is = EXP_STR;
   r->as.str = str;
@@ -175,7 +168,6 @@ node_t node_arm(char *ctr, char *x, node_t e) {
 }
 
 node_t node_vec(vec_t v) {
-  puts("node_vec");
   node_t e = malloc(sizeof(*e));
   e->is = EXP_VEC;
   e->as.vec = v;
@@ -183,21 +175,20 @@ node_t node_vec(vec_t v) {
 }
 
 node_t node_pair(pair_t p) {
-  printf("node_pair %p\n", p);
   node_t e = malloc(sizeof(*e));
   e->is = EXP_PAIR;
   e->as.pair = p;
   return e;
 }
 
-void field_free(pair_t id_exp) { pair_free(id_exp, free, node_free); }
+void field_free(pair_t id_exp) { pair_free(id_exp, free, (free_t)node_free); }
 
 void node_free(node_t e) {
   switch (e->is) {
-    case EXP_PRGM: vec_free(e->as.prgm, node_free); break;
+    case EXP_PRGM: vec_free(e->as.prgm, (free_t)node_free); break;
     case EXP_FUNC:
       free(e->as.func.f);
-      vec_free(e->as.func.args, field_free);
+      vec_free(e->as.func.args, (free_t)field_free);
       node_free(e->as.func.ret);
       node_free(e->as.func.body);
     break;
@@ -211,14 +202,14 @@ void node_free(node_t e) {
       node_free(e->as.set.e);
     break;
     case EXP_BODY:
-      vec_free(e->as.body.stmts, node_free);
+      vec_free(e->as.body.stmts, (free_t)node_free);
       node_free(e->as.body.ret);
     break;
-    case EXP_TY_RECORD: vec_free(e->as.ty_record, field_free); break;
-    case EXP_TY_VARIANT: vec_free(e->as.ty_variant, field_free); break;
+    case EXP_TY_RECORD: vec_free(e->as.ty_record, (free_t)field_free); break;
+    case EXP_TY_VARIANT: vec_free(e->as.ty_variant, (free_t)field_free); break;
     case EXP_TY_PTR: node_free(e->as.ty_ptr); break;
     case EXP_FPTR:
-      vec_free(e->as.fptr.args, node_free);
+      vec_free(e->as.fptr.args, (free_t)node_free);
       node_free(e->as.fptr.ret);
     break;
     case EXP_ID: free(e->as.id); break;
@@ -239,10 +230,10 @@ void node_free(node_t e) {
     break;
     case EXP_CALL:
       node_free(e->as.call.f);
-      vec_free(e->as.call.args, node_free);
+      vec_free(e->as.call.args, (free_t)node_free);
     break;
     case EXP_RECORD:
-      vec_free(e->as.record, field_free);
+      vec_free(e->as.record, (free_t)field_free);
     break;
     case EXP_VARIANT:
       free(e->as.variant.name);
@@ -250,7 +241,7 @@ void node_free(node_t e) {
     break;
     case EXP_MATCH:
       node_free(e->as.match.e);
-      vec_free(e->as.match.arms, node_free);
+      vec_free(e->as.match.arms, (free_t)node_free);
     break;
     case EXP_ARM:
       free(e->as.arm.ctr);

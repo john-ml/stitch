@@ -3,6 +3,7 @@
 
 #include "vec.h"
 #include "pair.h"
+#include <stdio.h>
 
 typedef enum { UOP_NEG, UOP_REF, UOP_DEREF } uop_t;
 typedef enum { BOP_ADD, BOP_MUL } bop_t;

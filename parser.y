@@ -1,13 +1,15 @@
 %{
 
-#include "macros.h"
+#include "misc.h"
 #include "ast.h"
+#include "vec.h"
 
 #define YYSTYPE node_t
 #define YYERROR_VERBOSE
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <ctype.h>
 
 void yyerror(node_t *out, char const *s);
