@@ -15,7 +15,7 @@ char *yytextcpy() {
 char *yytextunescape() {
   char *s = malloc(yyleng + 1);
   char *p = s;
-  for (char *q = yytext; *q; ++p, ++q) {
+  for (char *q = yytext + 1; *q; ++p, ++q) { // Skip leading quote
     if (*q == '\\') {
       switch (*++q) {
         case 't': *p = '\t'; break;
@@ -29,7 +29,7 @@ char *yytextunescape() {
     } else
       *p = *q;
   }
-  *p = 0;
+  *(p - 1) = 0; // Clobber trailing quote
   return s;
 }
 %}
