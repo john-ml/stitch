@@ -193,6 +193,13 @@ void node_pp_field(stab_t t, FILE *fp, pair_t id_e, int lvl, char const *sep) {
   }
 }
 
+#define PP_VEC_COMMA_SEP(x, v, ...) \
+  VEC_FOR(x, v, __PP_VEC_COMMA_SEP_i, __PP_VEC_COMMA_SEP_n) { \
+    __VA_ARGS__ \
+    if (__PP_VEC_COMMA_SEP_i < __PP_VEC_COMMA_SEP_n - 1) \
+      fprintf(fp, ", "); \
+  }
+
 void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
   switch (e->is) {
     case EXP_PRGM:
@@ -203,11 +210,9 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
     break;
     case EXP_FUNC:
       fprintf(fp, "%s(", stab_get(t, e->as.func.f));
-      VEC_FOR(arg, e->as.func.args, i, n) {
+      PP_VEC_COMMA_SEP(arg, e->as.func.args,
         node_pp_field(t, fp, arg, lvl, ": ");
-        if (i < n - 1)
-          fprintf(fp, ", ");
-      }
+      )
       fprintf(fp, ")");
       if (e->as.func.ret) {
         fprintf(fp, ": ");
@@ -238,20 +243,16 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
     break;
     case EXP_TY_RECORD:
       fputc('{', fp);
-      VEC_FOR(field, e->as.ty_record, i, n) {
+      PP_VEC_COMMA_SEP(field, e->as.ty_record,
         node_pp_field(t, fp, field, lvl, ": ");
-        if (i < n - 1)
-          fprintf(fp, ", ");
-      }
+      )
       fputc('}', fp);
     break;
     case EXP_TY_VARIANT:
       fputc('<', fp);
-      VEC_FOR(field, e->as.ty_variant, i, n) {
+      PP_VEC_COMMA_SEP(field, e->as.ty_variant,
         node_pp_field(t, fp, field, lvl, ": ");
-        if (i < n - 1)
-          fprintf(fp, ", ");
-      }
+      )
       fputc('>', fp);
     break;
     case EXP_TY_PTR:
@@ -260,11 +261,9 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
     break;
     case EXP_FPTR:
       fputc('(', fp);
-      VEC_FOR(arg, e->as.fptr.args, i, n) {
+      PP_VEC_COMMA_SEP(arg, e->as.fptr.args,
         node_pp_(t, fp, arg, lvl);
-        if (i < n - 1)
-          fprintf(fp, ", ");
-      }
+      )
       fprintf(fp, ") -> ");
       node_pp_(t, fp, e->as.fptr.ret, lvl);
     break;
@@ -301,20 +300,16 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
     case EXP_CALL:
       node_pp_(t, fp, e->as.call.f, lvl);
       fputc('(', fp);
-      VEC_FOR(arg, e->as.call.args, i, n) {
+      PP_VEC_COMMA_SEP(arg, e->as.call.args,
         node_pp_(t, fp, arg, lvl);
-        if (i < n - 1)
-          fprintf(fp, ", ");
-      }
+      )
       fputc(')', fp);
     break;
     case EXP_RECORD:
       fputc('{', fp);
-      VEC_FOR(field, e->as.record, i, n) {
+      PP_VEC_COMMA_SEP(field, e->as.record,
         node_pp_field(t, fp, field, lvl, " = ");
-        if (i < n - 1)
-          fprintf(fp, ", ");
-      }
+      )
       fputc('}', fp);
     break;
     case EXP_VARIANT:
@@ -339,6 +334,8 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
     break;
   }
 }
+
+#undef PP_VEC_COMMA_SEP
 
 void node_pp(stab_t t, FILE *fp, node_t e) { node_pp_(t, fp, e, 0); }
 
