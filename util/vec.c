@@ -39,8 +39,8 @@ void vec_realloc(vec_t *v) {
   *v = of_raw(w);
 }
 
-void vec_expand(vec_t *v) { to_raw(*v)->len *= 2; vec_realloc(v); }
-void vec_contract(vec_t *v) { to_raw(*v)->len /= 2; vec_realloc(v); }
+void vec_expand(vec_t *v) { to_raw(*v)->cap *= 2; vec_realloc(v); }
+void vec_contract(vec_t *v) { to_raw(*v)->cap /= 2; vec_realloc(v); }
 
 void vec_add(vec_t *v, any_t x) {
   if (vec_len(*v) == vec_cap(*v))
