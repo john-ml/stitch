@@ -3,3 +3,4 @@ lexer.h
 parser.tab.c
 parser.tab.h
 stitch
+*.swp
