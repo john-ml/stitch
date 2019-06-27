@@ -1,5 +1,6 @@
 #include "misc.h"
 #include "ast.h"
+#include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -138,6 +139,7 @@ void node_del(node_t e) {
       vec_del(e->as.match.arms, (del_t)node_del);
       break;
     case EXP_ARM: node_del(e->as.arm.e); break;
+    EXP_TODO
   } 
   free(e);
 }
@@ -153,6 +155,7 @@ void uop_pp(FILE *fp, uop_t op) {
     case UOP_NEG: fputc('-', fp); break;
     case UOP_REF: fputc('&', fp); break;
     case UOP_DEREF: fputc('*', fp); break;
+    UOP_TODO
   }
 }
 
@@ -160,6 +163,7 @@ void bop_pp(FILE *fp, bop_t op) {
   switch (op) {
     case BOP_ADD: fputc('+', fp); break;
     case BOP_MUL: fputc('*', fp); break;
+    BOP_TODO
   }
 }
 
@@ -177,6 +181,7 @@ void node_pp_rhs(stab_t t, FILE *fp, node_t e, int lvl, int semi) {
         fputc(')', fp);
       node_pp_newline(fp, lvl);
       break;
+    EXP_TODO
     default:
       node_pp_(t, fp, e, lvl);
       if (semi)
@@ -332,6 +337,7 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
         stab_get(t, e->as.arm.x));
       node_pp_rhs(t, fp, e->as.arm.e, lvl, 0);
       break;
+    EXP_TODO
   }
 }
 
@@ -349,6 +355,7 @@ int node_is_ty(node_t e) {
       return 1;
     default:
       return 0;
+    TY_TODO
   }
 }
 
@@ -371,5 +378,6 @@ int node_is_tm(node_t e) {
       return 1;
     default:
       return 0;
+    EXP_TODO
   }
 }

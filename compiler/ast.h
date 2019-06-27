@@ -6,9 +6,14 @@
 #include "interning.h"
 #include <stdio.h>
 
+#define UOP_TODO
 typedef enum { UOP_NEG, UOP_REF, UOP_DEREF } uop_t;
-typedef enum { BOP_ADD, BOP_MUL } bop_t;
 
+#define BOP_TODO
+typedef enum { BOP_ADD, BOP_MUL, BOP_SUB } bop_t;
+
+#define EXP_TODO
+#define TY_TODO
 typedef enum {
   EXP_PRGM, EXP_FUNC,
   EXP_LET, EXP_SET, EXP_BODY,

@@ -86,6 +86,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
         return 1;
       }
       break;
+    TY_TODO
     default: assert(0);
   }
   return 0;
@@ -135,11 +136,25 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
     } break;
     case EXP_NUM: break; // TODO
     case EXP_STR: break; // TODO
-    // case EXP_UOP: node_del(e->as.uop.e); break;
-    // case EXP_BOP:
-    //   node_del(e->as.bop.l);
-    //   node_del(e->as.bop.r);
-    //   break;
+    case EXP_UOP:
+      switch (e->as.uop.op) {
+        case UOP_NEG: // TODO
+          break;
+        case UOP_REF: // TODO
+          break;
+        case UOP_DEREF: // TODO
+          break;
+      }
+      break;
+    case EXP_BOP:
+      switch (e->as.bop.op) {
+        case BOP_ADD: // TODO
+          break;
+        case BOP_MUL:
+          break;
+        BOP_TODO
+      }
+      break;
     // case EXP_PROJ: node_del(e->as.proj.e); break;
     // case EXP_INDEX:
     //   node_del(e->as.index.e);
@@ -158,6 +173,7 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
     //   vec_del(e->as.match.arms, (del_t)node_del);
     //   break;
     // case EXP_ARM: node_del(e->as.arm.e); break;
+    EXP_TODO
     default: assert(0);
   }
   return 0;
