@@ -94,7 +94,7 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
           case EXP_LET:
             assert(stmt->as.let.t);
             check_exp(stab, env, stmt->as.let.e, stmt->as.let.t); // TODO break out on type error
-            vec_add(&clobbers, vec_put(env, stmt->as.let.x, stmt->as.let.t));
+            vec_add(&clobbers, vec_put_(env, stmt->as.let.x, stmt->as.let.t, NULL));
             break;
           case EXP_SET:
             // TODO TY_MUT
@@ -117,10 +117,16 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
           (void) vec_put(env, ((node_t)stmt)->as.let.x, clobbers[--i]);
       vec_del(clobbers, no_del);
     } break;
-    case EXP_ID: 
-      printf("here %d %d\n", (int)(size_t)e->as.id, vec_len(*env)); //env[(size_t)e->as.id]);
+    case EXP_ID: {
       // TODO vec needs to be zeroinitialized so we can check for unbound vars
-      return check_ty(stab, *env[(size_t)e->as.id], ty);
+      sid_t x = (sid_t)(size_t)e->as.id;
+      node_t t = (*env)[x];
+      if (!t) {
+        fprintf(stderr, "Variable not in scope: %s\n", stab_get(stab, x));
+        return 1;
+      }
+      return check_ty(stab, (*env)[(size_t)e->as.id], ty);
+    } break;
     case EXP_NUM: break; // TODO
     case EXP_STR: break; // TODO
     // case EXP_UOP: node_del(e->as.uop.e); break;
@@ -157,9 +163,10 @@ void check_func(stab_t stab, vec_t *env, node_t const func) {
   vec_t clobbers = vec_create(vec_len(func->as.func.args));
   VEC_FOREACH(arg, func->as.func.args) {
     vec_add(&clobbers,
-      vec_put(env,
+      vec_put_(env,
         (int)(size_t)((pair_t)arg)->a,
-        ((pair_t)arg)->b));
+        ((pair_t)arg)->b,
+        NULL));
   }
   // Typecheck the body against return type
   check_exp(stab, env, func->as.func.body, func->as.func.ret);
@@ -176,7 +183,7 @@ void check_types(stab_t stab, node_t const prgm) {
   vec_t env = vec_new();
   // Populate environment with all functions for mutual recursion
   VEC_FOREACH(func, prgm->as.prgm)
-    (void) vec_put(&env, ((node_t)func)->as.func.f, func);
+    (void) vec_put_(&env, ((node_t)func)->as.func.f, func, NULL);
   // Check each function
   VEC_FOREACH(func, prgm->as.prgm)
     check_func(stab, &env, func);

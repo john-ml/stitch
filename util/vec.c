@@ -24,6 +24,13 @@ vec_t vec_create(int cap) {
 
 vec_t vec_new() { return vec_create(8); }
 
+void vec_del(vec_t v, del_t f) {
+  raw_t w = to_raw(v);
+  for (int i = w->len; i--;)
+    f(v[i]);
+  free(w);
+}
+
 vec_t vec_sing(any_t x) {
   vec_t v = vec_new();
   vec_add(&v, x);
@@ -69,9 +76,11 @@ any_t vec_put(vec_t *v, int i, any_t x) {
   return old;
 }
 
-void vec_del(vec_t v, del_t f) {
-  raw_t w = to_raw(v);
-  for (int i = w->len; i--;)
-    f(v[i]);
-  free(w);
+any_t vec_put_(vec_t *v, int i, any_t x, any_t null) {
+  int old_len = vec_len(*v);
+  any_t res = vec_put(v, i, x);
+  if (old_len < vec_len(*v));
+  for (int i = old_len; i < vec_len(*v) - 1; ++i)
+    (*v)[i] = null;
+  return res;
 }

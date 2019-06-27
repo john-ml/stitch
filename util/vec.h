@@ -37,6 +37,9 @@ any_t vec_pop(vec_t *v);
 // Return old value of v[i]
 any_t vec_put(vec_t *v, int i, any_t x);
 
+// Same as vec_put, but initialize any blank entries to null
+any_t vec_put_(vec_t *v, int i, any_t x, any_t null);
+
 // f frees items
 void vec_del(vec_t v, del_t f);
 
