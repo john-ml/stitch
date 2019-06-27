@@ -150,7 +150,9 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
       switch (e->as.bop.op) {
         case BOP_ADD: // TODO
           break;
-        case BOP_MUL:
+        case BOP_MUL: // TODO
+          break;
+        case BOP_SUB: // TODO
           break;
         BOP_TODO
       }

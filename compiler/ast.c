@@ -163,6 +163,7 @@ void bop_pp(FILE *fp, bop_t op) {
   switch (op) {
     case BOP_ADD: fputc('+', fp); break;
     case BOP_MUL: fputc('*', fp); break;
+    case BOP_SUB: fputc('-', fp); break;
     BOP_TODO
   }
 }
