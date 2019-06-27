@@ -64,8 +64,7 @@ void vec_del(vec_t v, del_t f);
 
 #define VEC_REV_FOREACH(x, v) \
   VEC_REV_FOR(x, v, \
-    __VEC_REV_FOREACH_i##__LINE__, \
-    __VEC_REV_FOREACH_n##__LINE__)
+    __VEC_REV_FOREACH_i##__LINE__)
 
 #define VEC_FOR2(x1, v1, i1, n1, x2, v2, i2, n2) \
   for ( \
@@ -100,12 +99,8 @@ void vec_del(vec_t v, del_t f);
     __VEC_FOREACH_n2##__LINE__)
 
 #define VEC_REV_FOREACH2(x1, v1, x2, v2) \
-  VEC_REV_FOR2(x1, v1, \
-    __VEC_REV_FOREACH_i1##__LINE__, \
-    __VEC_REV_FOREACH_n1##__LINE__, \
-    x2, v2, \
-    __VEC_REV_FOREACH_i2##__LINE__, \
-    __VEC_REV_FOREACH_n2##__LINE__)
-
+  VEC_REV_FOR2( \
+    x1, v1, __VEC_REV_FOREACH_i1##__LINE__, \
+    x2, v2, __VEC_REV_FOREACH_i2##__LINE__)
 
 #endif // VEC_INCLUDED_H

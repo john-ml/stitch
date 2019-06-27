@@ -6,11 +6,11 @@ all:
           -o stitch \
           lexer.c parser.tab.c \
           stitch.c \
-          compiler/ast.c \
+          compiler/ast.c compiler/typing.c \
           util/vec.c util/pair.c util/interning.c util/misc.c
 
 clean:
 	rm stitch parser.tab.* lexer.*
 
 test: stitch
-	valgrind --leak-check=full --show-leak-kinds=all ./stitch examples/test_src
+	valgrind --leak-check=full --show-leak-kinds=all ./stitch examples/typing_test
