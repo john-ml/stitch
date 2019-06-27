@@ -1,5 +1,5 @@
 quadruple(x: int): int = 
-  y: int = x + x;
-  z: int = x * 2;
-  y + z
+  y: int = x;
+  z: int = x;
+  y
 

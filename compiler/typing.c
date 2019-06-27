@@ -34,8 +34,8 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
           l1, l2);
         return 1;
       }
-      VEC_FOREACH2(f1, t1->as.ty_record, f2, t2->as.ty_record) {
-        pair_t f1 = f1, f2 = f2;
+      VEC_FOREACH2(f1_, t1->as.ty_record, f2_, t2->as.ty_record) {
+        pair_t f1 = f1_, f2 = f2_;
         if (f1->a != f2->a) {
           fprintf(stderr,
             "Field name mismatch: expected %s but got %s\n",
@@ -57,8 +57,8 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
           l1, l2);
         return 1;
       }
-      VEC_FOREACH2(f1, t1->as.ty_variant, f2, t2->as.ty_variant) {
-        pair_t f1 = f1, f2 = f2;
+      VEC_FOREACH2(f1_, t1->as.ty_variant, f2_, t2->as.ty_variant) {
+        pair_t f1 = f1_, f2 = f2_;
         if (f1->a != f2->a) {
           fprintf(stderr,
             "Variant tag mismatch: expected %s but got %s\n",
@@ -88,12 +88,12 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
   switch (e->is) {
     case EXP_BODY: {
       vec_t clobbers = vec_new();
-      VEC_FOREACH(stmt, e->as.body.stmts) {
-        node_t stmt = stmt;
+      VEC_FOR(stmt_, e->as.body.stmts, i, n) {
+        node_t stmt = stmt_;
         switch (stmt->is) {
           case EXP_LET:
             assert(stmt->as.let.t);
-            check_exp(stab, env, stmt->as.let.e, stmt->as.let.t);
+            check_exp(stab, env, stmt->as.let.e, stmt->as.let.t); // TODO break out on type error
             vec_add(&clobbers, vec_put(env, stmt->as.let.x, stmt->as.let.t));
             break;
           case EXP_SET:
@@ -103,7 +103,8 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
             //   node_del(e->as.set.e);
             // break;
             break;
-          default: assert(0);
+          default:
+            assert(0);
         }
       }
       if (check_exp(stab, env, e->as.body.ret, ty))
@@ -117,10 +118,11 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
       vec_del(clobbers, no_del);
     } break;
     case EXP_ID: 
+      printf("here %d %d\n", (int)(size_t)e->as.id, vec_len(*env)); //env[(size_t)e->as.id]);
       // TODO vec needs to be zeroinitialized so we can check for unbound vars
       return check_ty(stab, *env[(size_t)e->as.id], ty);
-    // case EXP_NUM: break; // TODO
-    // case EXP_STR: break; // TODO
+    case EXP_NUM: break; // TODO
+    case EXP_STR: break; // TODO
     // case EXP_UOP: node_del(e->as.uop.e); break;
     // case EXP_BOP:
     //   node_del(e->as.bop.l);
@@ -153,11 +155,12 @@ void check_func(stab_t stab, vec_t *env, node_t const func) {
   assert(func->is == EXP_FUNC);
   // Save old env + extend env with args
   vec_t clobbers = vec_create(vec_len(func->as.func.args));
-  VEC_FOREACH(arg, func->as.func.args)
+  VEC_FOREACH(arg, func->as.func.args) {
     vec_add(&clobbers,
       vec_put(env,
         (int)(size_t)((pair_t)arg)->a,
         ((pair_t)arg)->b));
+  }
   // Typecheck the body against return type
   check_exp(stab, env, func->as.func.body, func->as.func.ret);
   // Restore old env

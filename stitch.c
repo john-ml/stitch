@@ -15,7 +15,7 @@ void main(int argc, char **argv) {
   printf("vec_len(stab.strs) = %d\n", vec_len(stab.strs));
   for (int i = 0; i < vec_len(stab.strs); ++i)
     printf("stab.strs[%d] = %s\n", i, (char *)stab.strs[i]);
-  // check_types(stab, e);
+  check_types(stab, e);
 
   node_del(e);
   stab_del(stab);

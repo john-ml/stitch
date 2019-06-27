@@ -87,4 +87,7 @@ void node_pp(stab_t t, FILE *fp, node_t e);
 int node_is_ty(node_t e);
 int node_is_tm(node_t e);
 
+void uop_pp(FILE *fp, uop_t op);
+void bop_pp(FILE *fp, bop_t op);
+
 #endif // AST_INCLUDED_H

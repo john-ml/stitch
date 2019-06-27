@@ -64,6 +64,8 @@ any_t vec_put(vec_t *v, int i, any_t x) {
   raw_t w = to_raw(*v);
   any_t old = w->data[i];
   w->data[i] = x;
+  if (i >= w->len)
+    w->len = i + 1;
   return old;
 }
 
