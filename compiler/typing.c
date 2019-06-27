@@ -44,7 +44,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
       VEC_FOREACH2(f1, t1->as.ty_record, f2, t2->as.ty_record)
         if (check_ty(stab, f1->b, f2->b))
           return 1;
-    break;
+      break;
     case EXP_TY_VARIANT:
       if (int l1 = vec_len(t1->as.ty_variant),
           l2 = vec_len(t2->as.ty_variant),
@@ -66,14 +66,14 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
       VEC_FOREACH2(f1, t1->as.ty_variant, f2, t2->as.ty_variant)
         if (check_ty(stab, f1->b, f2->b))
           return 1;
-    break;
+      break;
     case EXP_TY_PTR: return check_ty(stab, t1->as.ty_ptr, t2->as.ty_ptr);
     case EXP_FPTR:
       VEC_FOREACH2(arg1, t1->as.fptr.args, arg2, t2->as.fptr.args)
         if (check_ty(stab, arg1, arg2))
           return 1;
       return check_ty(t1->as.fptr.ret, t2->as.fptr.ret);
-    break;
+      break;
     case EXP_ID: return t1->as.id == t2->as.id;
     default: assert(0);
   }
@@ -94,7 +94,7 @@ void check_exp(stab_t stab, vec_t *env, node_t const exp, node_t const ty) {
       // break;
       vec_del(e->as.body.stmts, (del_t)node_del);
       node_del(e->as.body.ret);
-    break;
+      break;
     case EXP_ID: break;
     case EXP_NUM: break;
     case EXP_STR: break;
@@ -102,24 +102,24 @@ void check_exp(stab_t stab, vec_t *env, node_t const exp, node_t const ty) {
     case EXP_BOP:
       node_del(e->as.bop.l);
       node_del(e->as.bop.r);
-    break;
+      break;
     case EXP_PROJ: node_del(e->as.proj.e); break;
     case EXP_INDEX:
       node_del(e->as.index.e);
       node_del(e->as.index.i);
-    break;
+      break;
     case EXP_CALL:
       node_del(e->as.call.f);
       vec_del(e->as.call.args, (del_t)node_del);
-    break;
+      break;
     case EXP_RECORD:
       vec_del(e->as.record, (del_t)field_del);
-    break;
+      break;
     case EXP_VARIANT: node_del(e->as.variant.e); break;
     case EXP_MATCH:
       node_del(e->as.match.e);
       vec_del(e->as.match.arms, (del_t)node_del);
-    break;
+      break;
     case EXP_ARM: node_del(e->as.arm.e); break;
     default: assert(0);
   } 

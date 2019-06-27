@@ -91,27 +91,27 @@ void node_del(node_t e) {
       if (e->as.func.ret)
         node_del(e->as.func.ret);
       node_del(e->as.func.body);
-    break;
+      break;
     case EXP_LET:
       if (e->as.let.t)
         node_del(e->as.let.t);
       node_del(e->as.let.e);
-    break;
+      break;
     case EXP_SET:
       node_del(e->as.set.x);
       node_del(e->as.set.e);
-    break;
+      break;
     case EXP_BODY:
       vec_del(e->as.body.stmts, (del_t)node_del);
       node_del(e->as.body.ret);
-    break;
+      break;
     case EXP_TY_RECORD: vec_del(e->as.ty_record, (del_t)field_del); break;
     case EXP_TY_VARIANT: vec_del(e->as.ty_variant, (del_t)field_del); break;
     case EXP_TY_PTR: node_del(e->as.ty_ptr); break;
     case EXP_FPTR:
       vec_del(e->as.fptr.args, (del_t)node_del);
       node_del(e->as.fptr.ret);
-    break;
+      break;
     case EXP_ID: break;
     case EXP_NUM: break;
     case EXP_STR: break;
@@ -119,24 +119,24 @@ void node_del(node_t e) {
     case EXP_BOP:
       node_del(e->as.bop.l);
       node_del(e->as.bop.r);
-    break;
+      break;
     case EXP_PROJ: node_del(e->as.proj.e); break;
     case EXP_INDEX:
       node_del(e->as.index.e);
       node_del(e->as.index.i);
-    break;
+      break;
     case EXP_CALL:
       node_del(e->as.call.f);
       vec_del(e->as.call.args, (del_t)node_del);
-    break;
+      break;
     case EXP_RECORD:
       vec_del(e->as.record, (del_t)field_del);
-    break;
+      break;
     case EXP_VARIANT: node_del(e->as.variant.e); break;
     case EXP_MATCH:
       node_del(e->as.match.e);
       vec_del(e->as.match.arms, (del_t)node_del);
-    break;
+      break;
     case EXP_ARM: node_del(e->as.arm.e); break;
   } 
   free(e);
@@ -176,7 +176,7 @@ void node_pp_rhs(stab_t t, FILE *fp, node_t e, int lvl, int semi) {
       else
         fputc(')', fp);
       node_pp_newline(fp, lvl);
-    break;
+      break;
     default:
       node_pp_(t, fp, e, lvl);
       if (semi)
@@ -207,7 +207,7 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
         node_pp_(t, fp, func, lvl);
         node_pp_newline(fp, lvl);
       }
-    break;
+      break;
     case EXP_FUNC:
       fprintf(fp, "%s(", stab_get(t, e->as.func.f));
       PP_VEC_COMMA_SEP(arg, e->as.func.args,
@@ -221,7 +221,7 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
       fprintf(fp, " =");
       node_pp_newline(fp, lvl + 2);
       node_pp_(t, fp, e->as.func.body, lvl + 2);
-    break;
+      break;
     case EXP_LET:
       fprintf(fp, "%s", stab_get(t, e->as.let.x));
       if (e->as.let.t) {
@@ -230,35 +230,35 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
       }
       fprintf(fp, " = ");
       node_pp_rhs(t, fp, e->as.let.e, lvl, 1);
-    break;
+      break;
     case EXP_SET:
       node_pp_(t, fp, e->as.set.x, lvl);
       fprintf(fp, " := ");
       node_pp_rhs(t, fp, e->as.set.e, lvl, 1);
-    break;
+      break;
     case EXP_BODY:
       VEC_FOREACH(stmt, e->as.body.stmts)
         node_pp_(t, fp, stmt, lvl);
       node_pp_(t, fp, e->as.body.ret, lvl);
-    break;
+      break;
     case EXP_TY_RECORD:
       fputc('{', fp);
       PP_VEC_COMMA_SEP(field, e->as.ty_record,
         node_pp_field(t, fp, field, lvl, ": ");
       )
       fputc('}', fp);
-    break;
+      break;
     case EXP_TY_VARIANT:
       fputc('<', fp);
       PP_VEC_COMMA_SEP(field, e->as.ty_variant,
         node_pp_field(t, fp, field, lvl, ": ");
       )
       fputc('>', fp);
-    break;
+      break;
     case EXP_TY_PTR:
       fputc('*', fp);
       node_pp_(t, fp, e->as.ty_ptr, lvl);
-    break;
+      break;
     case EXP_FPTR:
       fputc('(', fp);
       PP_VEC_COMMA_SEP(arg, e->as.fptr.args,
@@ -266,7 +266,7 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
       )
       fprintf(fp, ") -> ");
       node_pp_(t, fp, e->as.fptr.ret, lvl);
-    break;
+      break;
     case EXP_ID: fprintf(fp, "%s", stab_get(t, e->as.id)); break;
     case EXP_NUM: fprintf(fp, "%d", e->as.num); break;
     case EXP_STR: fprintf(fp, "%s", stab_get(t, e->as.str)); break;
@@ -275,7 +275,7 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
       uop_pp(fp, e->as.uop.op);
       node_pp_(t, fp, e->as.uop.e, lvl);
       fputc(')', fp);
-    break;
+      break;
     case EXP_BOP:
       fputc('(', fp);
       node_pp_(t, fp, e->as.bop.l, lvl);
@@ -284,19 +284,19 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
       fputc(' ', fp);
       node_pp_(t, fp, e->as.bop.r, lvl);
       fputc(')', fp);
-    break;
+      break;
     case EXP_PROJ:
       fputc('(', fp);
       node_pp_(t, fp, e->as.proj.e, lvl);
       fprintf(fp, ".%s)", stab_get(t, e->as.proj.id));
-    break;
+      break;
     case EXP_INDEX:
       fputc('(', fp);
       node_pp_(t, fp, e->as.index.e, lvl);
       fputc('[', fp);
       node_pp_(t, fp, e->as.index.i, lvl);
       fprintf(fp, "])");
-    break;
+      break;
     case EXP_CALL:
       node_pp_(t, fp, e->as.call.f, lvl);
       fputc('(', fp);
@@ -304,19 +304,19 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
         node_pp_(t, fp, arg, lvl);
       )
       fputc(')', fp);
-    break;
+      break;
     case EXP_RECORD:
       fputc('{', fp);
       PP_VEC_COMMA_SEP(field, e->as.record,
         node_pp_field(t, fp, field, lvl, " = ");
       )
       fputc('}', fp);
-    break;
+      break;
     case EXP_VARIANT:
       fprintf(fp, "%s@(", stab_get(t, e->as.variant.name));
       node_pp_(t, fp, e->as.variant.e, lvl);
       fputc(')', fp);
-    break;
+      break;
     case EXP_MATCH:
       fprintf(fp, "case ");
       node_pp_(t, fp, e->as.match.e, lvl);
@@ -325,13 +325,13 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
         node_pp_(t, fp, arm, lvl);
       fprintf(fp, "end");
       node_pp_newline(fp, lvl);
-    break;
+      break;
     case EXP_ARM:
       fprintf(fp, "| %s@%s -> ", 
         stab_get(t, e->as.arm.ctr),
         stab_get(t, e->as.arm.x));
       node_pp_rhs(t, fp, e->as.arm.e, lvl, 0);
-    break;
+      break;
   }
 }
 
