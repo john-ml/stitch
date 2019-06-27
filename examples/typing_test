@@ -4,3 +4,4 @@ f(x: int): bool =
   z: bool = x;
   z
 
+g(xy: {x: int, y: int}): {x: int, y: int, z: int} = xy

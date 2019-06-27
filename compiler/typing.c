@@ -19,7 +19,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
   if (t1->is != t2->is) {
     fprintf(stderr, "Expected ");
     node_pp(stab, stderr, t2);
-    fprintf(stderr, " but got ");
+    fprintf(stderr, ", got ");
     node_pp(stab, stderr, t1);
     fprintf(stderr, "\n");
     return 1;
@@ -30,7 +30,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
       int l2 = vec_len(t2->as.ty_record);
       if (l1 != l2) {
         fprintf(stderr,
-          "Record width mismatch: expected %d but got %d\n",
+          "Record width mismatch: expected %d, got %d\n",
           l1, l2);
         return 1;
       }
@@ -38,7 +38,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
         pair_t f1 = f1_, f2 = f2_;
         if (f1->a != f2->a) {
           fprintf(stderr,
-            "Field name mismatch: expected %s but got %s\n",
+            "Field name mismatch: expected %s, got %s\n",
             stab_get(stab, (sid_t)(size_t)f1->a),
             stab_get(stab, (sid_t)(size_t)f2->a));
           return 1;
@@ -53,7 +53,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
       int l2 = vec_len(t2->as.ty_variant);
       if (l1 != l2) {
         fprintf(stderr,
-          "Variant width mismatch: expected %d but got %d\n",
+          "Variant width mismatch: expected %d, got %d\n",
           l1, l2);
         return 1;
       }
@@ -61,7 +61,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
         pair_t f1 = f1_, f2 = f2_;
         if (f1->a != f2->a) {
           fprintf(stderr,
-            "Variant tag mismatch: expected %s but got %s\n",
+            "Variant tag mismatch: expected %s, got %s\n",
             stab_get(stab, (sid_t)(size_t)f1->a),
             stab_get(stab, (sid_t)(size_t)f2->a));
           return 1;
@@ -80,7 +80,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
       break;
     case EXP_ID:
       if (t1->as.id != t2->as.id) {
-        fprintf(stderr, "Expected %s but got %s\n",
+        fprintf(stderr, "Expected %s, got %s\n",
           stab_get(stab, (sid_t)(size_t)t1->as.id),
           stab_get(stab, (sid_t)(size_t)t2->as.id));
         return 1;
@@ -125,7 +125,6 @@ int check_exp(stab_t stab, vec_t *env, node_t const e, node_t const ty) {
       vec_del(clobbers, no_del);
     } break;
     case EXP_ID: {
-      // TODO vec needs to be zeroinitialized so we can check for unbound vars
       sid_t x = (sid_t)(size_t)e->as.id;
       node_t t = (*env)[x];
       if (!t) {
