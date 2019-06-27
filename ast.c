@@ -446,3 +446,39 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
 }
 
 void node_pp(stab_t t, FILE *fp, node_t e) { node_pp_(t, fp, e, 0); }
+
+int node_is_ty(node_t e) {
+  switch (e->is) {
+    case EXP_TY_RECORD:
+    case EXP_TY_VARIANT:
+    case EXP_TY_PTR:
+    case EXP_FPTR:
+    case EXP_ID: 
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+int node_is_tm(node_t e) {
+  switch (e->is) {
+    case EXP_LET:
+    case EXP_SET:
+    case EXP_BODY:
+    case EXP_ID:
+    case EXP_NUM:
+    case EXP_STR:
+    case EXP_UOP:
+    case EXP_BOP:
+    case EXP_PROJ:
+    case EXP_INDEX:
+    case EXP_CALL:
+    case EXP_RECORD:
+    case EXP_VARIANT:
+    case EXP_MATCH:
+      return 1;
+    default:
+      return 0;
+  }
+}
+

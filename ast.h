@@ -84,4 +84,7 @@ node_t node_pair(pair_t p);
 void node_del(node_t e);
 void node_pp(stab_t t, FILE *fp, node_t e);
 
+int node_is_ty(node_t e);
+int node_is_tm(node_t e);
+
 #endif // AST_INCLUDED_H
