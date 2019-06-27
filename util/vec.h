@@ -49,10 +49,23 @@ void vec_del(vec_t v, del_t f);
     x = (v)[(size_t)i], (size_t)i < (size_t)n; \
     ++i)
 
+#define VEC_REV_FOR(x, v, i) \
+  for ( \
+    any_t \
+      i = (any_t)(size_t)vec_len(v), \
+      x; \
+    x = (v)[(size_t)i-1], (size_t)i; \
+    --i)
+
 #define VEC_FOREACH(x, v) \
   VEC_FOR(x, v, \
     __VEC_FOREACH_i##__LINE__, \
     __VEC_FOREACH_n##__LINE__)
+
+#define VEC_REV_FOREACH(x, v) \
+  VEC_REV_FOR(x, v, \
+    __VEC_REV_FOREACH_i##__LINE__, \
+    __VEC_REV_FOREACH_n##__LINE__)
 
 #define VEC_FOR2(x1, v1, i1, n1, x2, v2, i2, n2) \
   for ( \
@@ -67,6 +80,17 @@ void vec_del(vec_t v, del_t f);
       (size_t)i1 < (size_t)n1 && (size_t)i2 < (size_t)n2; \
     ++i1, ++i2)
 
+#define VEC_REV_FOR2(x1, v1, i1, x2, v2, i2) \
+  for ( \
+    any_t \
+      i1 = (any_t)(size_t)vec_len(v1), \
+      i2 = (any_t)(size_t)vec_len(v2), \
+      x1, x2; \
+    x1 = (v1)[(size_t)i1-1], \
+      x2 = (v2)[(size_t)i2-1], \
+      (size_t)i1 && (size_t)i2; \
+    --i1, --i2)
+
 #define VEC_FOREACH2(x1, v1, x2, v2) \
   VEC_FOR2(x1, v1, \
     __VEC_FOREACH_i1##__LINE__, \
@@ -74,5 +98,14 @@ void vec_del(vec_t v, del_t f);
     x2, v2, \
     __VEC_FOREACH_i2##__LINE__, \
     __VEC_FOREACH_n2##__LINE__)
+
+#define VEC_REV_FOREACH2(x1, v1, x2, v2) \
+  VEC_REV_FOR2(x1, v1, \
+    __VEC_REV_FOREACH_i1##__LINE__, \
+    __VEC_REV_FOREACH_n1##__LINE__, \
+    x2, v2, \
+    __VEC_REV_FOREACH_i2##__LINE__, \
+    __VEC_REV_FOREACH_n2##__LINE__)
+
 
 #endif // VEC_INCLUDED_H

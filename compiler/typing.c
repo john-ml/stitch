@@ -82,19 +82,28 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
 
 void check_exp(stab_t stab, vec_t *env, node_t const exp, node_t const ty) {
   switch (e->is) {
-    case EXP_BODY:
-      // case EXP_LET:
-      //   if (e->as.let.t)
-      //     node_del(e->as.let.t);
-      //   node_del(e->as.let.e);
-      // break;
-      // case EXP_SET:
-      //   node_del(e->as.set.x);
-      //   node_del(e->as.set.e);
-      // break;
+    case EXP_BODY: {
+      vec_t clobbers = vec_new();
+      VEC_FOREACH(stmt, e->as.body.stmts) {
+        switch (stmt->is) {
+          case EXP_LET:
+            assert(stmt->as.let.t);
+            check_exp(stab, env, stmt->as.let.e, stmt->as.let.t);
+            vec_add(&clobbers, vec_put(env, stmt->as.let.x, stmt->as.let.t));
+            break;
+          case EXP_SET:
+            // TODO TY_MUT
+            // case EXP_SET:
+            //   node_del(e->as.set.x);
+            //   node_del(e->as.set.e);
+            // break;
+            break;
+          default: assert(0);
+        }
+      }
       vec_del(e->as.body.stmts, (del_t)node_del);
       node_del(e->as.body.ret);
-      break;
+    } break;
     case EXP_ID: break;
     case EXP_NUM: break;
     case EXP_STR: break;
