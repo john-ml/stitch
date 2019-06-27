@@ -10,7 +10,7 @@ all:
           util/vec.c util/pair.c util/interning.c util/misc.c
 
 clean:
-	rm parser.tab.* lexer.*
+	rm stitch parser.tab.* lexer.*
 
 test: a.out
-	valgrind --leak-check=full --show-leak-kinds=all ./stitch test_src
+	valgrind --leak-check=full --show-leak-kinds=all ./stitch examples/test_src

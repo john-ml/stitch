@@ -1,4 +1,0 @@
-nested(x: int): int = (
-  x := x;
-  x
-)
