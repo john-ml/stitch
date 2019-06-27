@@ -54,4 +54,25 @@ void vec_del(vec_t v, del_t f);
     __VEC_FOREACH_i##__LINE__, \
     __VEC_FOREACH_n##__LINE__)
 
+#define VEC_FOR2(x1, v1, i1, n1, x2, v2, i2, n2) \
+  for ( \
+    any_t \
+      i1 = (any_t)0, \
+      i2 = (any_t)0, \
+      n1 = (any_t)(size_t)vec_len(v1), \
+      n2 = (any_t)(size_t)vec_len(v2), \
+      x1, x2; \
+    x1 = (v1)[(size_t)i1], \
+      x2 = (v2)[(size_t)i2], \
+      (size_t)i1 < (size_t)n1 && (size_t)i2 < (size_t)n2; \
+    ++i1, ++i2)
+
+#define VEC_FOREACH2(x1, v1, x2, v2) \
+  VEC_FOR2(x1, v1, \
+    __VEC_FOREACH_i1##__LINE__, \
+    __VEC_FOREACH_n1##__LINE__, \
+    x2, v2, \
+    __VEC_FOREACH_i2##__LINE__, \
+    __VEC_FOREACH_n2##__LINE__)
+
 #endif // VEC_INCLUDED_H
