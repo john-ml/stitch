@@ -45,8 +45,8 @@ init : prgm { *out = $1; }
 prgm : func      { $$ = node_prgm(vec_sing($1)); }
      | prgm func { vec_add(&$1->as.prgm, $2); $$ = $1; }
 
-func : ID '(' ty_fields ')' ':' type '=' fn_body {
-  $$ = node_func($1->as.id, $3->as.vec, $6, $8);
+func : ID '(' ty_fields ')' opt_type '=' fn_body {
+  $$ = node_func($1->as.id, $3->as.vec, $5, $7);
   free($1); free($3);
 }
 
@@ -57,7 +57,7 @@ body : stmts ';' expr            { $$ = node_body($1->as.vec, $3); free($1); }
 stmts : stmt                     { $$ = node_vec(vec_sing($1)); }
       | stmts ';' stmt           { vec_add(&$1->as.vec, $3); $$ = $1; }
 
-stmt : ID ':' type '=' expr      { $$ = node_let($1->as.id, $3, $5); free($1); }
+stmt : ID opt_type '=' expr      { $$ = node_let($1->as.id, $2, $4); free($1); }
      | expr ASGN expr            { $$ = node_set($1, $3); }
 
 type : ID                        { $$ = $1; }
@@ -74,7 +74,10 @@ ty_fields :                        { $$ = node_vec(vec_new()); }
           | ty_field               { $$ = node_vec(vec_sing($1->as.pair)); free($1); }
           | ty_fields ',' ty_field { vec_add(&$1->as.vec, $3->as.pair); $$ = $1; free($3); }
 
-ty_field : ID ':' type { $$ = node_pair(pair_new((void *)(size_t)$1->as.id, $3)); free($1); }
+ty_field : ID opt_type { $$ = node_pair(pair_new((void *)(size_t)$1->as.id, $2)); free($1); }
+
+opt_type :          { $$ = NULL; }
+         | ':' type { $$ = $2; }
 
 expr : ID | NUM | STR        { $$ = $1; }
      | expr '+' expr         { $$ = node_bop($1, BOP_ADD, $3); }

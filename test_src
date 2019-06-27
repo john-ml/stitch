@@ -40,3 +40,49 @@ extract(xy: <l: int, r: int>): int =
     | r@y -> y
     end;
   res
+
+quadruple(x) = 
+  y = x + x;
+  z = x * 2;
+  y + z
+
+octuple(z) =
+  z = quadruple(x);
+  z + z
+
+deref(p) = *p
+
+proj(p) = p.x
+
+index(p, i) = p[i][i]
+
+dup(x) =
+  {l = x, r = x}
+
+inl(x) =
+  l@x
+
+inr(x) =
+  r@x
+
+nested(x) =
+  y = (
+    z = x + x;
+    z := z + 2;
+    z
+  );
+  y + y
+
+extract(xy) =
+  res =
+    case xy
+    | l@x -> x
+    | r@y -> y
+    end;
+  res
+
+extract(xy) =
+  case xy
+  | l@x -> x
+  | r@y -> y
+  end
