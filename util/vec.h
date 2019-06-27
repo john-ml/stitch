@@ -23,14 +23,17 @@ int vec_len(vec_t v);
 // The storage space allocated in v
 int vec_cap(vec_t v);
 
-// vec_add and vec_pop require *v because v may be moved to a different
-// location during resizing
+// vec_add, vec_pop, and vec_ins require *v because v may be moved to a
+// different location during resizing
 
 // Add to back
 void vec_add(vec_t *v, any_t x);
 
 // Remove from back
 any_t vec_pop(vec_t *v);
+
+// Force v[i] = x, expanding v as needed
+void vec_ins(vec_t *v, int i, any_t x);
 
 // f frees items
 void vec_del(vec_t v, del_t f);

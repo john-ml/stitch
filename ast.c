@@ -481,4 +481,3 @@ int node_is_tm(node_t e) {
       return 0;
   }
 }
-

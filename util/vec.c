@@ -56,6 +56,15 @@ any_t vec_pop(vec_t *v) {
   return w->data[--w->len];
 }
 
+void vec_ins(vec_t *v, int i, any_t x) {
+  if (i >= to_raw(*v)->cap) {
+    to_raw(*v)->cap = i + 1;
+    vec_realloc(v);
+  }
+  raw_t w = to_raw(*v);
+  w->data[i] = x;
+}
+
 void vec_del(vec_t v, del_t f) {
   raw_t w = to_raw(v);
   for (int i = w->len; i--;)
