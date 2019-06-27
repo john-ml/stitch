@@ -15,6 +15,31 @@ void infer_types(node_t prgm) {
 
 // Simple check of fully annotated program
 
+int check_ty(stab_t stab, node_t const t1, node_t const t2);
+int check_ty_fields(stab_t stab, vec_t const fs1, vec_t const fs2, char const *typ) {
+  int l1 = vec_len(fs1), l2 = vec_len(fs2);
+  if (l1 != l2) {
+    fprintf(stderr,
+      "%s width mismatch: expected %d, got %d\n",
+      typ, l1, l2);
+    return 1;
+  }
+  VEC_FOREACH2(f1_, fs1, f2_, fs2) {
+    pair_t f1 = f1_, f2 = f2_;
+    if (f1->a != f2->a) {
+      fprintf(stderr,
+        "Name mismatch: expected %s, got %s\n",
+        stab_get(stab, (sid_t)(size_t)f1->a),
+        stab_get(stab, (sid_t)(size_t)f2->a));
+      return 1;
+    }
+  }
+  VEC_FOREACH2(f1, fs1, f2, fs2)
+    if (check_ty(stab, ((pair_t)f1)->b, ((pair_t)f2)->b))
+      return 1;
+  return 0;
+}
+
 int check_ty(stab_t stab, node_t const t1, node_t const t2) {
   if (t1->is != t2->is) {
     fprintf(stderr, "Expected ");
@@ -25,52 +50,16 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
     return 1;
   }
   switch (t1->is) {
-    case EXP_TY_RECORD: {
-      int l1 = vec_len(t1->as.ty_record);
-      int l2 = vec_len(t2->as.ty_record);
-      if (l1 != l2) {
-        fprintf(stderr,
-          "Record width mismatch: expected %d, got %d\n",
-          l1, l2);
-        return 1;
-      }
-      VEC_FOREACH2(f1_, t1->as.ty_record, f2_, t2->as.ty_record) {
-        pair_t f1 = f1_, f2 = f2_;
-        if (f1->a != f2->a) {
-          fprintf(stderr,
-            "Field name mismatch: expected %s, got %s\n",
-            stab_get(stab, (sid_t)(size_t)f1->a),
-            stab_get(stab, (sid_t)(size_t)f2->a));
-          return 1;
-        }
-      }
-      VEC_FOREACH2(f1, t1->as.ty_record, f2, t2->as.ty_record)
-        if (check_ty(stab, ((pair_t)f1)->b, ((pair_t)f2)->b))
-          return 1;
-    } break;
-    case EXP_TY_VARIANT: {
-      int l1 = vec_len(t1->as.ty_variant);
-      int l2 = vec_len(t2->as.ty_variant);
-      if (l1 != l2) {
-        fprintf(stderr,
-          "Variant width mismatch: expected %d, got %d\n",
-          l1, l2);
-        return 1;
-      }
-      VEC_FOREACH2(f1_, t1->as.ty_variant, f2_, t2->as.ty_variant) {
-        pair_t f1 = f1_, f2 = f2_;
-        if (f1->a != f2->a) {
-          fprintf(stderr,
-            "Variant tag mismatch: expected %s, got %s\n",
-            stab_get(stab, (sid_t)(size_t)f1->a),
-            stab_get(stab, (sid_t)(size_t)f2->a));
-          return 1;
-        }
-      }
-      VEC_FOREACH2(f1, t1->as.ty_variant, f2, t2->as.ty_variant)
-        if (check_ty(stab, ((pair_t)f1)->b, ((pair_t)f2)->b))
-          return 1;
-    } break;
+    case EXP_TY_RECORD:
+      return check_ty_fields(stab,
+        t1->as.ty_record,
+        t2->as.ty_record,
+        "Record");
+    case EXP_TY_VARIANT:
+      return check_ty_fields(stab,
+        t1->as.ty_record,
+        t2->as.ty_record,
+        "Variant");
     case EXP_TY_PTR: return check_ty(stab, t1->as.ty_ptr, t2->as.ty_ptr);
     case EXP_FPTR:
       VEC_FOREACH2(arg1, t1->as.fptr.args, arg2, t2->as.fptr.args)
