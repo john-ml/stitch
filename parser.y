@@ -3,6 +3,7 @@
 #include "misc.h"
 #include "ast.h"
 #include "vec.h"
+#include "interning.h"
 
 #define YYSTYPE node_t
 #define YYERROR_VERBOSE
@@ -12,14 +13,15 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-void yyerror(node_t *out, char const *s);
-int yylex(void);
+void yyerror(node_t *out, stab_t *interned, char const *s);
+int yylex(stab_t *interned);
 int yylex_destroy(void);
 FILE *yyin;
 
 %}
 
-%parse-param {node_t *out}
+%lex-param {stab_t *interned}
+%parse-param {node_t *out} {stab_t *interned}
 %token NUM
 %token STR
 %token ID
@@ -72,7 +74,7 @@ ty_fields :                        { $$ = node_vec(vec_new()); }
           | ty_field               { $$ = node_vec(vec_sing($1->as.pair)); free($1); }
           | ty_fields ',' ty_field { vec_add(&$1->as.vec, $3->as.pair); $$ = $1; free($3); }
 
-ty_field : ID ':' type { $$ = node_pair(pair_new($1->as.id, $3)); free($1); }
+ty_field : ID ':' type { $$ = node_pair(pair_new((void *)(size_t)$1->as.id, $3)); free($1); }
 
 expr : ID | NUM | STR        { $$ = $1; }
      | expr '+' expr         { $$ = node_bop($1, BOP_ADD, $3); }
@@ -103,7 +105,7 @@ fields :                  { $$ = node_vec(vec_new()); }
        | field            { $$ = node_vec(vec_sing($1->as.pair)); free($1); }
        | fields ',' field { vec_add(&$1->as.vec, $3->as.pair); $$ = $1; free($3); }
 
-field : ID '=' expr { $$ = node_pair(pair_new($1->as.id, $3)); free($1); }
+field : ID '=' expr { $$ = node_pair(pair_new((void *)(size_t)$1->as.id, $3)); free($1); }
 
 exprs :                { $$ = node_vec(vec_new()); }
       | expr           { $$ = node_vec(vec_sing($1)); }
@@ -111,14 +113,20 @@ exprs :                { $$ = node_vec(vec_new()); }
 
 %%
 
-void yyerror(node_t *out, char const *s) { printf("%s\n", s); exit(1); }
+void yyerror(node_t *out, stab_t *interned, char const *s) {
+  printf("%s\n", s); exit(1);
+}
 
 void main(int argc, char **argv) {
   yyin = argc > 1 ? fopen(argv[1], "r") : stdin;
   node_t e;
-  yyparse(&e);
-  node_pp(stdout, e);
+  stab_t interned = stab_new();
+
+  yyparse(&e, &interned);
+  node_pp(interned, stdout, e);
+
   node_del(e);
+  stab_del(interned);
   if (yyin != stdin)
     fclose(yyin);
   yylex_destroy();
