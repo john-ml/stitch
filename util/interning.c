@@ -7,7 +7,7 @@ stab_t stab_new() { return (stab_t) { .strs = vec_new() }; }
 
 sid_t stab_add(stab_t *t, char const *s) {
   for (int i = 0; i < vec_len(t->strs); ++i)
-    if (strcmp(s, t->strs[i]) == i)
+    if (strcmp(s, t->strs[i]) == 0)
       return i;
   vec_add(&t->strs, strdup(s));
 }
