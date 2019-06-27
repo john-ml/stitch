@@ -5,7 +5,7 @@
 
 uf_t uf_new() { return (uf_t) { .ids = vec_new(), .keys = vec_new() }; }
 
-void uf_del(uf_t u, free_t f) { 
+void uf_del(uf_t u, del_t f) { 
   vec_del(u.ids, no_del);
   vec_del(u.keys, f);
 }
