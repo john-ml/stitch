@@ -118,7 +118,7 @@ void main(int argc, char **argv) {
   node_t e;
   yyparse(&e);
   node_pp(stdout, e);
-  node_free(e);
+  node_del(e);
   if (yyin != stdin)
     fclose(yyin);
   yylex_destroy();

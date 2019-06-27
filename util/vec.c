@@ -56,7 +56,7 @@ any_t vec_pop(vec_t *v) {
   return w->data[--w->len];
 }
 
-void vec_free(vec_t v, free_t f) {
+void vec_del(vec_t v, del_t f) {
   raw_t w = to_raw(v);
   for (int i = w->len; i--;)
     f(v[i]);

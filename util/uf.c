@@ -5,9 +5,9 @@
 
 uf_t uf_new() { return (uf_t) { .ids = vec_new(), .keys = vec_new() }; }
 
-void uf_free(uf_t u, free_t f) { 
-  vec_free(u.ids, no_free);
-  vec_free(u.keys, f);
+void uf_del(uf_t u, free_t f) { 
+  vec_del(u.ids, no_del);
+  vec_del(u.keys, f);
 }
 
 uf_id_t uf_fresh(uf_t u, any_t k) {

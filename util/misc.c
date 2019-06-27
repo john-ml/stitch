@@ -1,3 +1,3 @@
 #include "misc.h"
 
-void no_free(any_t p) {};
+void no_del(any_t p) {};

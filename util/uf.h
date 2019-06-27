@@ -17,7 +17,7 @@ typedef struct uf_t {
 uf_t uf_new();
 
 // f frees keys
-void uf_free(uf_t u, free_t f);
+void uf_del(uf_t u, free_t f);
 
 uf_id_t uf_fresh(uf_t u, any_t k);
 

@@ -33,6 +33,6 @@ void vec_add(vec_t *v, any_t x);
 any_t vec_pop(vec_t *v);
 
 // f frees items
-void vec_free(vec_t v, free_t f);
+void vec_del(vec_t v, del_t f);
 
 #endif // VEC_INCLUDED_H

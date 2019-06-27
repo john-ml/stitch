@@ -5,8 +5,8 @@
 #define TO_STR(x) #x
 
 typedef void *any_t;
-typedef void (*free_t)(any_t);
+typedef void (*del_t)(any_t);
 
-void no_free(any_t);
+void no_del(any_t);
 
 #endif // MISC_INCLUDED_H

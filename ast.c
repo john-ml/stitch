@@ -181,72 +181,72 @@ node_t node_pair(pair_t p) {
   return e;
 }
 
-void field_free(pair_t id_exp) { pair_free(id_exp, free, (free_t)node_free); }
+void field_del(pair_t id_exp) { pair_del(id_exp, free, (del_t)node_del); }
 
-void node_free(node_t e) {
+void node_del(node_t e) {
   switch (e->is) {
-    case EXP_PRGM: vec_free(e->as.prgm, (free_t)node_free); break;
+    case EXP_PRGM: vec_del(e->as.prgm, (del_t)node_del); break;
     case EXP_FUNC:
       free(e->as.func.f);
-      vec_free(e->as.func.args, (free_t)field_free);
-      node_free(e->as.func.ret);
-      node_free(e->as.func.body);
+      vec_del(e->as.func.args, (del_t)field_del);
+      node_del(e->as.func.ret);
+      node_del(e->as.func.body);
     break;
     case EXP_LET:
       free(e->as.let.x);
-      node_free(e->as.let.t);
-      node_free(e->as.let.e);
+      node_del(e->as.let.t);
+      node_del(e->as.let.e);
     break;
     case EXP_SET:
-      node_free(e->as.set.x);
-      node_free(e->as.set.e);
+      node_del(e->as.set.x);
+      node_del(e->as.set.e);
     break;
     case EXP_BODY:
-      vec_free(e->as.body.stmts, (free_t)node_free);
-      node_free(e->as.body.ret);
+      vec_del(e->as.body.stmts, (del_t)node_del);
+      node_del(e->as.body.ret);
     break;
-    case EXP_TY_RECORD: vec_free(e->as.ty_record, (free_t)field_free); break;
-    case EXP_TY_VARIANT: vec_free(e->as.ty_variant, (free_t)field_free); break;
-    case EXP_TY_PTR: node_free(e->as.ty_ptr); break;
+    case EXP_TY_RECORD: vec_del(e->as.ty_record, (del_t)field_del); break;
+    case EXP_TY_VARIANT: vec_del(e->as.ty_variant, (del_t)field_del); break;
+    case EXP_TY_PTR: node_del(e->as.ty_ptr); break;
     case EXP_FPTR:
-      vec_free(e->as.fptr.args, (free_t)node_free);
-      node_free(e->as.fptr.ret);
+      vec_del(e->as.fptr.args, (del_t)node_del);
+      node_del(e->as.fptr.ret);
     break;
     case EXP_ID: free(e->as.id); break;
     case EXP_NUM: break;
     case EXP_STR: free(e->as.str); break;
-    case EXP_UOP: node_free(e->as.uop.e); break;
+    case EXP_UOP: node_del(e->as.uop.e); break;
     case EXP_BOP:
-      node_free(e->as.bop.l);
-      node_free(e->as.bop.r);
+      node_del(e->as.bop.l);
+      node_del(e->as.bop.r);
     break;
     case EXP_PROJ:
-      node_free(e->as.proj.e);
+      node_del(e->as.proj.e);
       free(e->as.proj.id);
     break;
     case EXP_INDEX:
-      node_free(e->as.index.e);
-      node_free(e->as.index.i);
+      node_del(e->as.index.e);
+      node_del(e->as.index.i);
     break;
     case EXP_CALL:
-      node_free(e->as.call.f);
-      vec_free(e->as.call.args, (free_t)node_free);
+      node_del(e->as.call.f);
+      vec_del(e->as.call.args, (del_t)node_del);
     break;
     case EXP_RECORD:
-      vec_free(e->as.record, (free_t)field_free);
+      vec_del(e->as.record, (del_t)field_del);
     break;
     case EXP_VARIANT:
       free(e->as.variant.name);
-      node_free(e->as.variant.e);
+      node_del(e->as.variant.e);
     break;
     case EXP_MATCH:
-      node_free(e->as.match.e);
-      vec_free(e->as.match.arms, (free_t)node_free);
+      node_del(e->as.match.e);
+      vec_del(e->as.match.arms, (del_t)node_del);
     break;
     case EXP_ARM:
       free(e->as.arm.ctr);
       free(e->as.arm.x);
-      node_free(e->as.arm.e);
+      node_del(e->as.arm.e);
     break;
   } 
   free(e);

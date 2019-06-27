@@ -80,7 +80,7 @@ node_t node_match(node_t e, vec_t arms);
 node_t node_arm(char *ctr, char *x, node_t e);
 node_t node_vec(vec_t v);
 node_t node_pair(pair_t p);
-void node_free(node_t e);
+void node_del(node_t e);
 void node_pp(FILE *fp, node_t e);
 
 #endif // AST_INCLUDED_H
