@@ -1,5 +1,6 @@
 #include "typing.h"
 #include "vec.h"
+#include "interning.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -12,27 +13,87 @@ void infer_types(node_t prgm) {
 
 // Simple check of fully annotated program
 
-void check_exp(vec_t *env, node_t const exp, node_t const ty) {
+int check_ty(stab_t stab, node_t const t1, node_t const t2) {
+  if (t1->is != t2->is) {
+    fprintf(stderr, "Expected ");
+    node_pp(stab, stderr, t2);
+    fprintf(stderr, " but got ");
+    node_pp(stab, stderr, t1);
+    fprintf(stderr, "\n");
+    return 1;
+  }
+  switch (t1->is) {
+    case EXP_TY_RECORD:
+      if (int l1 = vec_len(t1->as.ty_record),
+          l2 = vec_len(t2->as.ty_record),
+          l1 != l2) {
+        fprintf(stderr,
+          "Record width mismatch: expected %d but got %d\n",
+          l1, l2);
+        return 1;
+      }
+      VEC_FOREACH2(f1, t1->as.ty_record, f2, t2->as.ty_record) {
+        if (f1->a != f2->a) {
+          fprintf(stderr,
+            "Field name mismatch: expected %s but got %s\n",
+            stab_get(stab, (stab_t)(size_t)f1->a),
+            stab_get(stab, (stab_t)(size_t)f2->a));
+          return 1;
+        }
+      }
+      VEC_FOREACH2(f1, t1->as.ty_record, f2, t2->as.ty_record)
+        if (check_ty(stab, f1->b, f2->b))
+          return 1;
+    break;
+    case EXP_TY_VARIANT:
+      if (int l1 = vec_len(t1->as.ty_variant),
+          l2 = vec_len(t2->as.ty_variant),
+          l1 != l2) {
+        fprintf(stderr,
+          "Variant width mismatch: expected %d but got %d\n",
+          l1, l2);
+        return 1;
+      }
+      VEC_FOREACH2(f1, t1->as.ty_variant, f2, t2->as.ty_variant) {
+        if (f1->a != f2->a) {
+          fprintf(stderr,
+            "Variant tag mismatch: expected %s but got %s\n",
+            stab_get(stab, (stab_t)(size_t)f1->a),
+            stab_get(stab, (stab_t)(size_t)f2->a));
+          return 1;
+        }
+      }
+      VEC_FOREACH2(f1, t1->as.ty_variant, f2, t2->as.ty_variant)
+        if (check_ty(stab, f1->b, f2->b))
+          return 1;
+    break;
+    case EXP_TY_PTR: return check_ty(stab, t1->as.ty_ptr, t2->as.ty_ptr);
+    case EXP_FPTR:
+      VEC_FOREACH2(arg1, t1->as.fptr.args, arg2, t2->as.fptr.args)
+        if (check_ty(stab, arg1, arg2))
+          return 1;
+      return check_ty(t1->as.fptr.ret, t2->as.fptr.ret);
+    break;
+    case EXP_ID: return t1->as.id == t2->as.id;
+    default: assert(0);
+  }
+  return 0;
+}
+
+void check_exp(stab_t stab, vec_t *env, node_t const exp, node_t const ty) {
   switch (e->is) {
-    case EXP_LET:
-      if (e->as.let.t)
-        node_del(e->as.let.t);
-      node_del(e->as.let.e);
-    break;
-    case EXP_SET:
-      node_del(e->as.set.x);
-      node_del(e->as.set.e);
-    break;
     case EXP_BODY:
+      // case EXP_LET:
+      //   if (e->as.let.t)
+      //     node_del(e->as.let.t);
+      //   node_del(e->as.let.e);
+      // break;
+      // case EXP_SET:
+      //   node_del(e->as.set.x);
+      //   node_del(e->as.set.e);
+      // break;
       vec_del(e->as.body.stmts, (del_t)node_del);
       node_del(e->as.body.ret);
-    break;
-    case EXP_TY_RECORD: vec_del(e->as.ty_record, (del_t)field_del); break;
-    case EXP_TY_VARIANT: vec_del(e->as.ty_variant, (del_t)field_del); break;
-    case EXP_TY_PTR: node_del(e->as.ty_ptr); break;
-    case EXP_FPTR:
-      vec_del(e->as.fptr.args, (del_t)node_del);
-      node_del(e->as.fptr.ret);
     break;
     case EXP_ID: break;
     case EXP_NUM: break;
@@ -64,21 +125,21 @@ void check_exp(vec_t *env, node_t const exp, node_t const ty) {
   } 
 }
 
-void check_func(vec_t *env, node_t const func) {
+void check_func(stab_t stab, vec_t *env, node_t const func) {
   assert(func->is == EXP_FUNC);
   // Save old env + extend env with args
   vec_t clobbers = vec_create(vec_len(func->as.func.args));
   VEC_FOREACH(arg, func->as.func.args)
     vec_add(&clobbers, vec_put(env, arg->a, arg->b));
   // Typecheck the body against return type
-  check_exp(env, func->as.func.body, func->as.func.ret);
+  check_exp(stab, env, func->as.func.body, func->as.func.ret);
   // Restore old env
   VEC_FOR(arg, func->as.func.args, i, n)
     (void) vec_put(env, arg->a, clobbers[i]);
   vec_del(clobbers, no_del);
 }
 
-void check_types(node_t const prgm) {
+void check_types(stab_t stab, node_t const prgm) {
   assert(prgm->is == EXP_PRGM);
   vec_t env = vec_new();
   // Populate environment with all functions for mutual recursion
@@ -86,6 +147,6 @@ void check_types(node_t const prgm) {
     (void) vec_put(&env, func->as.func.f, func);
   // Check each function
   VEC_FOREACH(func, e->as.prgm)
-    check_func(&env, func);
+    check_func(stab, &env, func);
   vec_del(env, no_del);
 }
