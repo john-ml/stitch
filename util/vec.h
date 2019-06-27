@@ -40,7 +40,7 @@ any_t vec_put(vec_t *v, int i, any_t x);
 // f frees items
 void vec_del(vec_t v, del_t f);
 
-#define VEC_FOR(v, i, n, x) \
+#define VEC_FOR(x, v, i, n) \
   for ( \
     any_t \
       i = (any_t)0, \
@@ -48,5 +48,10 @@ void vec_del(vec_t v, del_t f);
       x; \
     x = (v)[(size_t)i], (size_t)i < (size_t)n; \
     ++i)
+
+#define VEC_FOREACH(x, v) \
+  VEC_FOR(x, v, \
+    __VEC_FOREACH_i##__LINE__, \
+    __VEC_FOREACH_n##__LINE__)
 
 #endif // VEC_INCLUDED_H
