@@ -1,5 +1,6 @@
-quadruple(x: int): int = 
+f(x: int): bool = 
   y: int = x;
-  z: int = x;
-  y
+  x: bool = 0;
+  z: bool = x;
+  z
 

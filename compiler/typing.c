@@ -78,7 +78,14 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
           return 1;
       return check_ty(stab, t1->as.fptr.ret, t2->as.fptr.ret);
       break;
-    case EXP_ID: return t1->as.id == t2->as.id;
+    case EXP_ID:
+      if (t1->as.id != t2->as.id) {
+        fprintf(stderr, "Expected %s but got %s\n",
+          stab_get(stab, (sid_t)(size_t)t1->as.id),
+          stab_get(stab, (sid_t)(size_t)t2->as.id));
+        return 1;
+      }
+      break;
     default: assert(0);
   }
   return 0;
