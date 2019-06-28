@@ -34,6 +34,8 @@ node_t node_fptr(vec_t args, node_t ret) {
   MK(node_t, EXP_FPTR, fptr, .args = args, .ret = ret);
 }
 
+node_t node_uvar(uf_id_t uvar) { MK_SING(node_t, EXP_UVAR, uvar, uvar); }
+
 node_t node_id(sid_t id) { MK_SING(node_t, EXP_ID, id, id); }
 
 node_t node_str(sid_t str) { MK_SING(node_t, EXP_STR, str, str); }
@@ -78,6 +80,8 @@ node_t node_vec(vec_t v) { MK_SING(node_t, EXP_VEC, vec, v); }
 
 node_t node_pair(pair_t p) { MK_SING(node_t, EXP_PAIR, pair, p); }
 
+NODE_TODO
+
 void field_del(pair_t id_exp) {
   if (id_exp->b)
     node_del(id_exp->b);
@@ -113,6 +117,7 @@ void node_del(node_t e) {
       vec_del(e->as.fptr.args, (del_t)node_del);
       node_del(e->as.fptr.ret);
       break;
+    case EXP_UVAR: break;
     case EXP_ID: break;
     case EXP_NUM: break;
     case EXP_STR: break;
@@ -139,7 +144,7 @@ void node_del(node_t e) {
       vec_del(e->as.match.arms, (del_t)node_del);
       break;
     case EXP_ARM: node_del(e->as.arm.e); break;
-    EXP_TODO
+    NODE_TODO
   } 
   free(e);
 }
@@ -273,6 +278,7 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
       fprintf(fp, ") -> ");
       node_pp_(t, fp, e->as.fptr.ret, lvl);
       break;
+    case EXP_UVAR: fprintf(fp, "?%d", e->as.uvar); break;
     case EXP_ID: fprintf(fp, "%s", stab_get(t, e->as.id)); break;
     case EXP_NUM: fprintf(fp, "%d", e->as.num); break;
     case EXP_STR: fprintf(fp, "%s", stab_get(t, e->as.str)); break;
@@ -338,7 +344,7 @@ void node_pp_(stab_t t, FILE *fp, node_t e, int lvl) {
         stab_get(t, e->as.arm.x));
       node_pp_rhs(t, fp, e->as.arm.e, lvl, 0);
       break;
-    EXP_TODO
+    NODE_TODO
   }
 }
 
@@ -352,6 +358,7 @@ int node_is_ty(node_t e) {
     case EXP_TY_VARIANT:
     case EXP_TY_PTR:
     case EXP_FPTR:
+    case EXP_UVAR: 
     case EXP_ID: 
       return 1;
     default:

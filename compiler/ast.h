@@ -4,6 +4,7 @@
 #include "vec.h"
 #include "pair.h"
 #include "interning.h"
+#include "uf.h"
 #include <stdio.h>
 
 #define UOP_TODO
@@ -14,10 +15,11 @@ typedef enum { BOP_ADD, BOP_MUL, BOP_SUB } bop_t;
 
 #define EXP_TODO
 #define TY_TODO
+#define NODE_TODO TY_TODO EXP_TODO
 typedef enum {
   EXP_PRGM, EXP_FUNC,
   EXP_LET, EXP_SET, EXP_BODY,
-  EXP_TY_RECORD, EXP_TY_VARIANT, EXP_TY_PTR, EXP_FPTR,
+  EXP_TY_RECORD, EXP_TY_VARIANT, EXP_TY_PTR, EXP_FPTR, EXP_UVAR,
   EXP_ID, EXP_NUM, EXP_STR,
   EXP_UOP, EXP_BOP,
   EXP_PROJ, EXP_INDEX, EXP_CALL,
@@ -40,6 +42,7 @@ typedef struct node_t {
     vec_t ty_variant;
     REC ty_ptr;
     struct { vec_t args; REC ret; } fptr;
+    uf_id_t uvar;
 
     sid_t id;
     int num;

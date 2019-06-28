@@ -6,9 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// HM-style type inference/checking
-// Fully annotate prgm with type information
-void infer_types(node_t prgm) {
+uf_t infer_types(node_t prgm) {
+  uf_t u = uf_new();
   fprintf(stderr, "infer_types not implemented\n");
   exit(1);
 }
@@ -75,6 +74,7 @@ int check_ty(stab_t stab, node_t const t1, node_t const t2) {
         return 1;
       }
       break;
+    case EXP_UVAR: assert(0); break;
     TY_TODO
     default: assert(0);
   }
