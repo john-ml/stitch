@@ -5,6 +5,7 @@
 #include "pair.h"
 #include "interning.h"
 #include "uf.h"
+#include "arena.h"
 #include <stdio.h>
 
 #define UOP_TODO
@@ -66,30 +67,29 @@ typedef struct node_t {
 } *node_t;
 #undef REC
 
-node_t node_prgm(vec_t funcs);
-node_t node_func(sid_t f, vec_t args, node_t ret, node_t body);
-node_t node_let(sid_t x, node_t t, node_t e);
-node_t node_set(node_t x, node_t e);
-node_t node_body(vec_t stmts, node_t ret);
-node_t node_ty_record(vec_t fields);
-node_t node_ty_variant(vec_t fields);
-node_t node_ty_ptr(node_t ty);
-node_t node_fptr(vec_t args, node_t ret);
-node_t node_id(sid_t id);
-node_t node_str(sid_t str);
-node_t node_num(int num);
-node_t node_uop(uop_t op, node_t e);
-node_t node_bop(node_t l, bop_t op, node_t r);
-node_t node_proj(node_t e, sid_t id);
-node_t node_index(node_t e, node_t i);
-node_t node_call(node_t f, vec_t args);
-node_t node_record(vec_t fields);
-node_t node_variant(sid_t name, node_t e);
-node_t node_match(node_t e, vec_t arms);
-node_t node_arm(sid_t ctr, sid_t x, node_t e);
-node_t node_vec(vec_t v);
-node_t node_pair(pair_t p);
-void node_del(node_t e);
+node_t node_prgm(arena_t *a, vec_t funcs);
+node_t node_func(arena_t *a, sid_t f, vec_t args, node_t ret, node_t body);
+node_t node_let(arena_t *a, sid_t x, node_t t, node_t e);
+node_t node_set(arena_t *a, node_t x, node_t e);
+node_t node_body(arena_t *a, vec_t stmts, node_t ret);
+node_t node_ty_record(arena_t *a, vec_t fields);
+node_t node_ty_variant(arena_t *a, vec_t fields);
+node_t node_ty_ptr(arena_t *a, node_t ty);
+node_t node_fptr(arena_t *a, vec_t args, node_t ret);
+node_t node_id(arena_t *a, sid_t id);
+node_t node_str(arena_t *a, sid_t str);
+node_t node_num(arena_t *a, int num);
+node_t node_uop(arena_t *a, uop_t op, node_t e);
+node_t node_bop(arena_t *a, node_t l, bop_t op, node_t r);
+node_t node_proj(arena_t *a, node_t e, sid_t id);
+node_t node_index(arena_t *a, node_t e, node_t i);
+node_t node_call(arena_t *a, node_t f, vec_t args);
+node_t node_record(arena_t *a, vec_t fields);
+node_t node_variant(arena_t *a, sid_t name, node_t e);
+node_t node_match(arena_t *a, node_t e, vec_t arms);
+node_t node_arm(arena_t *a, sid_t ctr, sid_t x, node_t e);
+node_t node_vec(arena_t *a, vec_t v);
+node_t node_pair(arena_t *a, pair_t p);
 void node_pp(stab_t t, FILE *fp, node_t e);
 
 int node_is_ty(node_t e);
