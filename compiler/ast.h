@@ -2,7 +2,6 @@
 #define AST_INCLUDED_H
 
 #include "vec.h"
-#include "pair.h"
 #include "interning.h"
 #include "uf.h"
 #include "arena.h"
@@ -13,6 +12,7 @@ typedef enum { UOP_NEG, UOP_REF, UOP_DEREF } uop_t;
 
 #define BOP_TODO
 typedef enum { BOP_ADD, BOP_MUL, BOP_SUB } bop_t;
+
 
 #define EXP_TODO
 #define TY_TODO
@@ -26,23 +26,23 @@ typedef enum {
   EXP_PROJ, EXP_INDEX, EXP_CALL,
   EXP_RECORD, EXP_VARIANT,
   EXP_MATCH, EXP_ARM,
-  EXP_VEC, EXP_PAIR
+  EXP_ID_E, EXP_VEC
 } node_tag_t;
 #define REC struct node_t *
 typedef struct node_t {
   node_tag_t is;
   union {
-    vec_t prgm;
-    struct { sid_t f; vec_t args; REC ret; REC body; } func;
+    VEC(REC) prgm;
+    struct { sid_t f; VEC(REC) args; REC ret; REC body; } func;
 
     struct { sid_t x; REC t; REC e; } let;
     struct { REC x; REC e; } set;
-    struct { vec_t stmts; REC ret; } body;
+    struct { VEC(REC) stmts; REC ret; } body;
 
-    vec_t ty_record;
-    vec_t ty_variant;
+    VEC(REC) ty_record;
+    VEC(REC) ty_variant;
     REC ty_ptr;
-    struct { vec_t args; REC ret; } fptr;
+    struct { VEC(REC) args; REC ret; } fptr;
     uf_id_t uvar;
 
     sid_t id;
@@ -54,46 +54,46 @@ typedef struct node_t {
 
     struct { REC e; sid_t id; } proj;
     struct { REC e; REC i; } index;
-    struct { REC f; vec_t args; } call;
-    vec_t record;
+    struct { REC f; VEC(REC) args; } call;
+    VEC(REC) record;
     struct { sid_t name; REC e; } variant;
 
-    struct { REC e; vec_t arms; } match;
+    struct { REC e; VEC(REC) arms; } match;
     struct { sid_t ctr; sid_t x; REC e; } arm;
 
-    vec_t vec;
-    pair_t pair;
+    struct { sid_t id; REC e; } id_e;
+    vec_p vec;
   } as;
-} *node_t;
+} *node_p;
 #undef REC
 
-node_t node_prgm(arena_t *a, vec_t funcs);
-node_t node_func(arena_t *a, sid_t f, vec_t args, node_t ret, node_t body);
-node_t node_let(arena_t *a, sid_t x, node_t t, node_t e);
-node_t node_set(arena_t *a, node_t x, node_t e);
-node_t node_body(arena_t *a, vec_t stmts, node_t ret);
-node_t node_ty_record(arena_t *a, vec_t fields);
-node_t node_ty_variant(arena_t *a, vec_t fields);
-node_t node_ty_ptr(arena_t *a, node_t ty);
-node_t node_fptr(arena_t *a, vec_t args, node_t ret);
-node_t node_id(arena_t *a, sid_t id);
-node_t node_str(arena_t *a, sid_t str);
-node_t node_num(arena_t *a, int num);
-node_t node_uop(arena_t *a, uop_t op, node_t e);
-node_t node_bop(arena_t *a, node_t l, bop_t op, node_t r);
-node_t node_proj(arena_t *a, node_t e, sid_t id);
-node_t node_index(arena_t *a, node_t e, node_t i);
-node_t node_call(arena_t *a, node_t f, vec_t args);
-node_t node_record(arena_t *a, vec_t fields);
-node_t node_variant(arena_t *a, sid_t name, node_t e);
-node_t node_match(arena_t *a, node_t e, vec_t arms);
-node_t node_arm(arena_t *a, sid_t ctr, sid_t x, node_t e);
-node_t node_vec(arena_t *a, vec_t v);
-node_t node_pair(arena_t *a, pair_t p);
-void node_pp(stab_t t, FILE *fp, node_t e);
+node_p node_prgm(arena_p *a, VEC(node_p) funcs);
+node_p node_func(arena_p *a, sid_t f, VEC(node_p) args, node_p ret, node_p body);
+node_p node_let(arena_p *a, sid_t x, node_p t, node_p e);
+node_p node_set(arena_p *a, node_p x, node_p e);
+node_p node_body(arena_p *a, VEC(node_p) stmts, node_p ret);
+node_p node_py_record(arena_p *a, VEC(node_p) fields);
+node_p node_py_variant(arena_p *a, VEC(node_p) fields);
+node_p node_py_ptr(arena_p *a, node_p ty);
+node_p node_fptr(arena_p *a, VEC(node_p) args, node_p ret);
+node_p node_id(arena_p *a, sid_t id);
+node_p node_str(arena_p *a, sid_t str);
+node_p node_num(arena_p *a, int num);
+node_p node_uop(arena_p *a, uop_t op, node_p e);
+node_p node_bop(arena_p *a, node_p l, bop_t op, node_p r);
+node_p node_proj(arena_p *a, node_p e, sid_t id);
+node_p node_index(arena_p *a, node_p e, node_p i);
+node_p node_call(arena_p *a, node_p f, VEC(node_p) args);
+node_p node_record(arena_p *a, VEC(node_p) fields);
+node_p node_variant(arena_p *a, sid_t name, node_p e);
+node_p node_match(arena_p *a, node_p e, VEC(node_p) arms);
+node_p node_arm(arena_p *a, sid_t ctr, sid_t x, node_p e);
+node_p node_vec(arena_p *a, VEC(node_p) v);
+node_p node_id_e(arena_p *a, sid_t id, node_p e);
+void node_pp(stab_t t, FILE *fp, node_p e);
 
-int node_is_ty(node_t e);
-int node_is_tm(node_t e);
+int node_is_ty(node_p e);
+int node_is_tm(node_p e);
 
 void uop_pp(FILE *fp, uop_t op);
 void bop_pp(FILE *fp, bop_t op);

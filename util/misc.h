@@ -4,8 +4,8 @@
 
 #define TO_STR(x) #x
 
-#define MIN(x, y) (x) < (y) ? (x) : (y)
-#define MAX(x, y) (x) < (y) ? (y) : (x)
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+#define MAX(x, y) ((x) < (y) ? (y) : (x))
 
 typedef void *any_t;
 typedef void (*del_t)(any_t);

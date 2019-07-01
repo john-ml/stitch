@@ -1,8 +1,8 @@
 %{
 #include "interning.h"
-#define YY_DECL int yylex(stab_t *interned, arena_t *a)
+#define YY_DECL int yylex(stab_t *interned, arena_p *a)
 #include "ast.h"
-#define YYSTYPE node_t
+#define YYSTYPE node_p
 #include "parser.tab.h"
 #include <string.h>
 
@@ -42,9 +42,9 @@ case                          return CASE;
 end                           return END;
 
 0|[1-9][0-9]*                 yylval = node_num(a, atoi(yytext)); return NUM;
-[a-zA-Z][a-zA-Z0-9_]*         yylval = node_id(a, stab_add(interned, yytext)); return ID;
+[a-zA-Z][a-zA-Z0-9_]*         yylval = node_id(a, stab_add(a, interned, yytext)); return ID;
 \"(\\.|[^\\"])*\"             { char *s = yytextunescape();
-                                yylval = node_str(a, stab_add(interned, s));
+                                yylval = node_str(a, stab_add(a, interned, s));
                                 free(s);
                                 return STR;
                               }

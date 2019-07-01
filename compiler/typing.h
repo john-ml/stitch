@@ -11,9 +11,9 @@
 // annotations. Their instantiations can be read out by calling uf_find
 // on the returned union-find instance as needed.
 // The returned union-find instance owns all keys.
-uf_t infer_types(node_t prgm);
+uf_t infer_types(node_p prgm);
 
 // Simple check of fully annotated program
-void check_types(stab_t t, node_t const prgm);
+void check_types(stab_t t, node_p const prgm);
 
 #endif // TYPING_INCLUDED_H

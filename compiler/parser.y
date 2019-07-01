@@ -6,7 +6,7 @@
 #include "interning.h"
 #include "arena.h"
 
-#define YYSTYPE node_t
+#define YYSTYPE node_p
 #define YYERROR_VERBOSE
 
 #include <math.h>
@@ -14,15 +14,15 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-void yyerror(node_t *out, stab_t *interned, arena_t *a, char const *s);
-int yylex(stab_t *interned, arena_t *a);
+void yyerror(node_p *out, stab_t *interned, arena_p *a, char const *s);
+int yylex(stab_t *interned, arena_p *a);
 int yylex_destroy(void);
 FILE *yyin;
 
 %}
 
-%lex-param {stab_t *interned} {arena_t *a}
-%parse-param {node_t *out} {stab_t *interned} {arena_t *a}
+%lex-param {stab_t *interned} {arena_p *a}
+%parse-param {node_p *out} {stab_t *interned} {arena_p *a}
 %token NUM
 %token STR
 %token ID
@@ -43,8 +43,8 @@ FILE *yyin;
 
 init : prgm { *out = $1; }
 
-prgm : func      { $$ = node_prgm(a, vec_sing($1)); }
-     | prgm func { vec_add(&$1->as.prgm, $2); $$ = $1; }
+prgm : func      { $$ = node_prgm(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
+     | prgm func { vec_add(a, (vec_p)&$1->as.prgm, (any_t)&$2); $$ = $1; }
 
 func : ID '(' ty_fields ')' opt_type '=' fn_body {
   $$ = node_func(a, $1->as.id, $3->as.vec, $5, $7);
@@ -54,27 +54,27 @@ fn_body : body | expr { $$ = $1; }
 
 body : stmts ';' expr            { $$ = node_body(a, $1->as.vec, $3); }
 
-stmts : stmt                     { $$ = node_vec(a, vec_sing($1)); }
-      | stmts ';' stmt           { vec_add(&$1->as.vec, $3); $$ = $1; }
+stmts : stmt                     { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
+      | stmts ';' stmt           { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
 stmt : ID opt_type '=' expr      { $$ = node_let(a, $1->as.id, $2, $4); }
      | expr ASGN expr            { $$ = node_set(a, $1, $3); }
 
 type : ID                        { $$ = $1; }
-     | '{' ty_fields '}'         { $$ = node_ty_record(a, $2->as.vec); }
-     | '<' ty_fields '>'         { $$ = node_ty_variant(a, $2->as.vec); }
-     | '*' type                  { $$ = node_ty_ptr(a, $2); }
+     | '{' ty_fields '}'         { $$ = node_py_record(a, $2->as.vec); }
+     | '<' ty_fields '>'         { $$ = node_py_variant(a, $2->as.vec); }
+     | '*' type                  { $$ = node_py_ptr(a, $2); }
      | '(' types ')' RARROW type { $$ = node_fptr(a, $2->as.vec, $5); }
 
-types :                { $$ = node_vec(a, vec_new()); }
-      | type           { $$ = node_vec(a, vec_sing($1)); }
-      | types ',' type { vec_add(&$1->as.vec, $3); $$ = $1; }
+types :                { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
+      | type           { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
+      | types ',' type { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
-ty_fields :                        { $$ = node_vec(a, vec_new()); }
-          | ty_field               { $$ = node_vec(a, vec_sing($1->as.pair)); }
-          | ty_fields ',' ty_field { vec_add(&$1->as.vec, $3->as.pair); $$ = $1; }
+ty_fields :                        { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
+          | ty_field               { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
+          | ty_fields ',' ty_field { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
-ty_field : ID opt_type { $$ = node_pair(a, pair_new((void *)(size_t)$1->as.id, $2)); }
+ty_field : ID opt_type { $$ = node_id_e(a, $1->as.id, $2); }
 
 opt_type :          { $$ = NULL; }
          | ':' type { $$ = $2; }
@@ -94,25 +94,25 @@ expr : ID | NUM | STR        { $$ = $1; }
      | ID '@' expr           { $$ = node_variant(a, $1->as.id, $3); }
      | CASE expr arms END    { $$ = node_match(a, $2, $3->as.vec); }
 
-arms : '{' '}'              { $$ = node_vec(a, vec_new()); }
-     | arm                  { $$ = node_vec(a, vec_sing($1)); }
-     | arms arm             { vec_add(&$1->as.vec, $2); $$ = $1; }
+arms : '{' '}'              { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
+     | arm                  { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
+     | arms arm             { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$2); $$ = $1; }
 
 arm : '|' ID '@' ID RARROW fn_body { $$ = node_arm(a, $2->as.id, $4->as.id, $6); }
 
-fields :                  { $$ = node_vec(a, vec_new()); }
-       | field            { $$ = node_vec(a, vec_sing($1->as.pair)); }
-       | fields ',' field { vec_add(&$1->as.vec, $3->as.pair); $$ = $1; }
+fields :                  { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
+       | field            { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
+       | fields ',' field { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
-field : ID '=' expr { $$ = node_pair(a, pair_new((void *)(size_t)$1->as.id, $3)); }
+field : ID '=' expr { $$ = node_id_e(a, $1->as.id, $3); }
 
-exprs :                { $$ = node_vec(a, vec_new()); }
-      | expr           { $$ = node_vec(a, vec_sing($1)); }
-      | exprs ',' expr { vec_add(&$1->as.vec, $3); $$ = $1; }
+exprs :                { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
+      | expr           { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
+      | exprs ',' expr { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
 %%
 
-void yyerror(node_t *out, stab_t *interned, arena_t *a, char const *s) {
+void yyerror(node_p *out, stab_t *interned, arena_p *a, char const *s) {
   puts(s);
   exit(1);
 }

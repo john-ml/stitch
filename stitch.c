@@ -8,9 +8,9 @@
 
 void main(int argc, char **argv) {
   yyin = argc > 1 ? fopen(argv[1], "r") : stdin;
-  node_t e;
-  stab_t stab = stab_new();
-  arena_t a = arena_new();
+  node_p e;
+  arena_p a = arena_new();
+  stab_t stab = stab_new(&a);
 
   yyparse(&e, &stab, &a);
   node_pp(stab, stdout, e);
@@ -19,7 +19,6 @@ void main(int argc, char **argv) {
   //  printf("stab.strs[%d] = %s\n", i, (char *)stab.strs[i]);
   //check_types(stab, e);
 
-  stab_del(stab);
   arena_del(a);
   if (yyin != stdin)
     fclose(yyin);

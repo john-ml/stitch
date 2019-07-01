@@ -7,8 +7,8 @@ all:
           lexer.c parser.tab.c \
           stitch.c \
           compiler/ast.c \
-          util/misc.c util/vec.c util/pair.c util/arena.c \
-	  util/interning.c util/uf.c
+          util/misc.c util/vec.c util/arena.c \
+	        util/interning.c util/uf.c
 
 clean:
 	rm stitch parser.tab.* lexer.*

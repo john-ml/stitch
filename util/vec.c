@@ -10,17 +10,17 @@ typedef struct raw_t {
   size_t len;
   size_t cap;
   char data[0];
-} *raw_t;
+} *raw_p;
 
-// Convert to and from raw_t and vec_p
-vec_p of_raw(raw_t v) { return (vec_p)&v->data; }
-raw_t to_raw(vec_p v) { 
-  return (raw_t)((char *)v - offsetof(struct raw_t, data)); 
+// Convert to and from raw_p and vec_p
+vec_p of_raw(raw_p v) { return (vec_p)&v->data; }
+raw_p to_raw(vec_p v) { 
+  return (raw_p)((char *)v - offsetof(struct raw_t, data)); 
 }
 
 vec_p vec_create(arena_p *a, size_t wid, size_t cap) {
-  raw_t v = arena_alloc(a, sizeof(*v) + wid*cap);
-  v->wid = 0;
+  raw_p v = arena_alloc(a, sizeof(*v) + wid*cap);
+  v->wid = wid;
   v->len = 0;
   v->cap = cap;
   return of_raw(v);
@@ -39,10 +39,10 @@ size_t vec_len(vec_p v) { return to_raw(v)->len; }
 size_t vec_cap(vec_p v) { return to_raw(v)->cap; }
 
 void vec_realloc(arena_p *a, vec_p *v) { 
-  raw_t w = to_raw(*v);
-  raw_t u = arena_alloc(a, sizeof(*u) + w->wid*w->cap);
+  raw_p w = to_raw(*v);
+  raw_p u = arena_alloc(a, sizeof(*u) + w->wid*w->cap);
   memcpy(u, w, sizeof(*w) + w->wid*w->len);
-  *v = of_raw(w);
+  *v = of_raw(u);
 }
 
 // // Force v[i] = x, expanding v as needed
@@ -57,13 +57,13 @@ void vec_expand(arena_p *a, vec_p *v) { to_raw(*v)->cap *= 2; vec_realloc(a, v);
 void vec_add(arena_p *a, vec_p *v, void *x) {
   if (vec_len(*v) == vec_cap(*v))
     vec_expand(a, v);
-  raw_t w = to_raw(*v);
-  ++w->len;
+  raw_p w = to_raw(*v);
   memcpy((char *)*v + w->wid*w->len, x, w->wid);
+  ++w->len;
 }
 
 void vec_pop(arena_p *a, vec_p *v, void *out) {
-  raw_t w = to_raw(*v);
+  raw_p w = to_raw(*v);
   assert(w->len > 0);
   --w->len;
   memcpy(out, (char *)*v + w->wid*w->len, w->wid);
@@ -74,7 +74,7 @@ void vec_pop(arena_p *a, vec_p *v, void *out) {
 //     to_raw(*v)->cap = i + 1;
 //     vec_realloc(v);
 //   }
-//   raw_t w = to_raw(*v);
+//   raw_p w = to_raw(*v);
 //   any_t old = w->data[i];
 //   w->data[i] = x;
 //   if (i >= w->len)
