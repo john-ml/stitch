@@ -1,28 +1,28 @@
-quadruple(x: int): int = 
+quadruple(x int) int:
   y: int = x + x;
   z: int = x * 2;
   y + z
 
-octuple(z: int): int =
+octuple(z int) int:
   z: int = quadruple(x);
   z + z
 
-deref(p: *int): int = *p
+deref(p *int) int: *p
 
-proj(p: {x: int, y: int}): int = p.x
+proj(p {x int, y int}) int: p.x
 
-index(p: **int, i: int): int = p[i][i]
+index(p **int, i int) int: p[i][i]
 
-dup(x: int): {l: int, r: int} =
+dup(x int) {l int, r int}:
   {l = x, r = x}
 
-inl(x: int): <l: int, r: int> =
+inl(x int) <l int, r int>:
   l@x
 
-inr(x: int): <l: int, r: int> =
+inr(x int) <l int, r int>:
   r@x
 
-nested(x: int): int =
+nested(x int) int:
   y: int = (
     z: int = x + x;
     z := z + 2;
@@ -30,42 +30,42 @@ nested(x: int): int =
   );
   y + y
 
-main(argc: int, argv: **char): void =
+main(argc int, argv **char) void:
   print("hello, world\n")
 
-extract(xy: <l: int, r: int>): int =
-  res : int =
+extract(xy <l int, r int>) int:
+  res: int =
     case xy
     | l@x -> x
     | r@y -> y
     end;
   res
 
-quadruple(x) = 
+quadruple(x):
   y = x + x;
   z = x * 2;
   y + z
 
-octuple(z) =
+octuple(z):
   z = quadruple(x);
   z + z
 
-deref(p) = *p
+deref(p): *p
 
-proj(p) = p.x
+proj(p): p.x
 
-index(p, i) = p[i][i]
+index(p, i): p[i][i]
 
-dup(x) =
+dup(x):
   {l = x, r = x}
 
-inl(x) =
+inl(x):
   l@x
 
-inr(x) =
+inr(x):
   r@x
 
-nested(x) =
+nested(x):
   y = (
     z = x + x;
     z := z + 2;
@@ -73,7 +73,7 @@ nested(x) =
   );
   y + y
 
-extract(xy) =
+extract(xy):
   res =
     case xy
     | l@x -> x
@@ -81,7 +81,7 @@ extract(xy) =
     end;
   res
 
-extract(xy) =
+extract(xy):
   case xy
   | l@x -> x
   | r@y -> y

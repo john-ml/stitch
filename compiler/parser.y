@@ -46,9 +46,18 @@ init : prgm { *out = $1; }
 prgm : func      { $$ = node_prgm(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
      | prgm func { vec_add(a, (vec_p)&$1->as.prgm, (any_t)&$2); $$ = $1; }
 
-func : ID '(' ty_fields ')' opt_type '=' fn_body {
+func : ID '(' ty_fields ')' type_opt ':' fn_body {
   $$ = node_func(a, $1->as.id, $3->as.vec, $5, $7);
 }
+
+type_opt :      { $$ = NULL; }
+         | type { $$ = $1; }
+
+// poly_opt : {}
+//          | '[' polys ']' {}
+
+// polys : ID       {}
+//       | polys ID {}
 
 fn_body : body | expr { $$ = $1; }
 
@@ -57,11 +66,12 @@ body : stmts ';' expr            { $$ = node_body(a, $1->as.vec, $3); }
 stmts : stmt                     { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
       | stmts ';' stmt           { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
-stmt : ID opt_type '=' expr      { $$ = node_let(a, $1->as.id, $2, $4); }
+stmt : ID anno_opt '=' expr      { $$ = node_let(a, $1->as.id, $2, $4); }
      | expr ASGN expr            { $$ = node_set(a, $1, $3); }
 
 type : ID                        { $$ = $1; }
      | '{' ty_fields '}'         { $$ = node_py_record(a, $2->as.vec); }
+//     | '{' ty_fields ';' ID '}'  {}
      | '<' ty_fields '>'         { $$ = node_py_variant(a, $2->as.vec); }
      | '*' type                  { $$ = node_py_ptr(a, $2); }
      | '(' types ')' RARROW type { $$ = node_fptr(a, $2->as.vec, $5); }
@@ -74,9 +84,9 @@ ty_fields :                        { $$ = node_vec(a, vec_new(a, sizeof(node_p))
           | ty_field               { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
           | ty_fields ',' ty_field { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
-ty_field : ID opt_type { $$ = node_id_e(a, $1->as.id, $2); }
+ty_field : ID type_opt { $$ = node_id_e(a, $1->as.id, $2); }
 
-opt_type :          { $$ = NULL; }
+anno_opt :          { $$ = NULL; }
          | ':' type { $$ = $2; }
 
 expr : ID | NUM | STR        { $$ = $1; }
@@ -88,6 +98,7 @@ expr : ID | NUM | STR        { $$ = $1; }
      | expr '.' ID           { $$ = node_proj(a, $1, $3->as.id); }
      | '(' body ')'          { $$ = $2; }
      | '(' expr ')'          { $$ = $2; }
+//      | ID ':' '[' types ']' '(' exprs ')' {}
      | expr '[' expr ']'     { $$ = node_index(a, $1, $3); }
      | expr '(' exprs ')'    { $$ = node_call(a, $1, $3->as.vec); }
      | '{' fields '}'        { $$ = node_record(a, $2->as.vec); }
