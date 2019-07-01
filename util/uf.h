@@ -10,16 +10,13 @@
 typedef int uf_id_t;
 
 typedef struct uf_t {
-  vec_t ids; // ID tree
-  vec_t keys;
+  VEC(uf_id_t) ids; // ID tree
+  VEC(any_t) keys;
 } uf_t;
 
-uf_t uf_new();
+uf_t uf_new(arena_p *a);
 
-// f frees keys
-void uf_del(uf_t u, del_t f);
-
-uf_id_t uf_fresh(uf_t u, any_t k);
+uf_id_t uf_fresh(arena_p *a, uf_t u, any_t k);
 
 uf_id_t uf_find(uf_t u, uf_id_t p);
 

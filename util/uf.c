@@ -1,25 +1,22 @@
 #include "uf.h"
 
-#define OF_ID(x) ((void *)(size_t)(x))
-#define TO_ID(x) ((uf_id_t)(size_t)(x))
-
-uf_t uf_new() { return (uf_t) { .ids = vec_new(), .keys = vec_new() }; }
-
-void uf_del(uf_t u, del_t f) { 
-  vec_del(u.ids, no_del);
-  vec_del(u.keys, f);
+uf_t uf_new(arena_p *a) {
+  return (uf_t) {
+    .ids = vec_new(a, sizeof(uf_id_t)), 
+    .keys = vec_new(a, sizeof(any_t))
+  };
 }
 
-uf_id_t uf_fresh(uf_t u, any_t k) {
+uf_id_t uf_fresh(arena_p *a, uf_t u, any_t k) {
   uf_id_t r = vec_len(u.ids);
-  vec_add(&u.ids, OF_ID(r));
-  vec_add(&u.keys, k);
+  vec_add(a, (vec_p)&u.ids, &r);
+  vec_add(a, (vec_p)&u.keys, &k);
   return r;
 }
 
 uf_id_t uf_find(uf_t u, uf_id_t i) {
-  while (OF_ID(i) != u.ids[i])
-    i = TO_ID(u.ids[i] = OF_ID(u.ids[TO_ID(u.ids[i])]));
+  while (i != u.ids[i])
+    i = u.ids[i] = u.ids[u.ids[i]];
   return i;
 }
 
@@ -27,10 +24,7 @@ void uf_union(uf_t u, uf_id_t i, uf_id_t j) {
   i = uf_find(u, i);
   j = uf_find(u, j);
   if (i != j)
-    u.ids[i] = OF_ID(j);
+    u.ids[i] = j;
 }
 
 any_t uf_get(uf_t u, uf_id_t i) { return u.keys[i]; }
-
-#undef OF_ID
-#undef TO_ID

@@ -6,19 +6,19 @@
 
 // Stuff length / capacity information in before the 'actual vector'
 typedef struct raw_t {
-  int wid;
-  int len;
-  int cap;
-  void data[0];
+  size_t wid;
+  size_t len;
+  size_t cap;
+  char data[0];
 } *raw_t;
 
-// Convert to and from raw_t and vec_t
-vec_t of_raw(raw_t v) { return (vec_t)&v->data; }
-raw_t to_raw(vec_t v) { 
+// Convert to and from raw_t and vec_p
+vec_p of_raw(raw_t v) { return (vec_p)&v->data; }
+raw_t to_raw(vec_p v) { 
   return (raw_t)((char *)v - offsetof(struct raw_t, data)); 
 }
 
-vec_t vec_create(arena_t *a, int wid, int cap) {
+vec_p vec_create(arena_p *a, size_t wid, size_t cap) {
   raw_t v = arena_alloc(a, sizeof(*v) + wid*cap);
   v->wid = 0;
   v->len = 0;
@@ -26,19 +26,19 @@ vec_t vec_create(arena_t *a, int wid, int cap) {
   return of_raw(v);
 }
 
-vec_t vec_new(arena_t *a, int wid) { return vec_create(a, wid, 8); }
+vec_p vec_new(arena_p *a, size_t wid) { return vec_create(a, wid, 8); }
 
-vec_t vec_sing(arena_t *a, int wid, void *x) {
-  vec_t v = vec_new();
+vec_p vec_sing(arena_p *a, size_t wid, void *x) {
+  vec_p v = vec_new(a, wid);
   vec_add(a, &v, x);
   return v;
 }
 
-int vec_wid(vec_t v) { return to_raw(v)->wid; }
-int vec_len(vec_t v) { return to_raw(v)->len; }
-int vec_cap(vec_t v) { return to_raw(v)->cap; }
+size_t vec_wid(vec_p v) { return to_raw(v)->wid; }
+size_t vec_len(vec_p v) { return to_raw(v)->len; }
+size_t vec_cap(vec_p v) { return to_raw(v)->cap; }
 
-void vec_realloc(arena_t *a, vec_t *v) { 
+void vec_realloc(arena_p *a, vec_p *v) { 
   raw_t w = to_raw(*v);
   raw_t u = arena_alloc(a, sizeof(*u) + w->wid*w->cap);
   memcpy(u, w, sizeof(*w) + w->wid*w->len);
@@ -47,29 +47,29 @@ void vec_realloc(arena_t *a, vec_t *v) {
 
 // // Force v[i] = x, expanding v as needed
 // // Return old value of v[i] in out
-// void vec_put(arena_t *a, vec_t *v, int i, void *x, void *out);
+// void vec_put(arena_p *a, vec_p *v, size_t i, void *x, void *out);
 // 
 // // Same as vec_put, but initialize any blank entries to null
-// void vec_put_(arena_t *a, vec_t *v, int i, void *x, void *out, void *null);
+// void vec_put_(arena_p *a, vec_p *v, size_t i, void *x, void *out, void *null);
 
-void vec_expand(vec_t *v) { to_raw(*v)->cap *= 2; vec_realloc(v); }
+void vec_expand(arena_p *a, vec_p *v) { to_raw(*v)->cap *= 2; vec_realloc(a, v); }
 
-void vec_add(arena_t *a, vec_t *v, void *x) {
+void vec_add(arena_p *a, vec_p *v, void *x) {
   if (vec_len(*v) == vec_cap(*v))
-    vec_expand(v);
+    vec_expand(a, v);
   raw_t w = to_raw(*v);
   ++w->len;
   memcpy((char *)*v + w->wid*w->len, x, w->wid);
 }
 
-void vec_pop(arena_t *a, vec_t *v, void *out) {
+void vec_pop(arena_p *a, vec_p *v, void *out) {
   raw_t w = to_raw(*v);
   assert(w->len > 0);
   --w->len;
   memcpy(out, (char *)*v + w->wid*w->len, w->wid);
 }
 
-// any_t vec_put(arena_t *a, vec_t *v, int i, void *x, void *out) {
+// any_t vec_put(arena_p *a, vec_p *v, size_t i, void *x, void *out) {
 //   if (i >= to_raw(*v)->cap) {
 //     to_raw(*v)->cap = i + 1;
 //     vec_realloc(v);
@@ -82,11 +82,11 @@ void vec_pop(arena_t *a, vec_t *v, void *out) {
 //   return old;
 // }
 // 
-// any_t vec_put_(vec_t *v, int i, any_t x, any_t null) {
-//   int old_len = vec_len(*v);
+// any_t vec_put_(vec_p *v, size_t i, any_t x, any_t null) {
+//   size_t old_len = vec_len(*v);
 //   any_t res = vec_put(v, i, x);
 //   if (old_len < vec_len(*v));
-//   for (int i = old_len; i < vec_len(*v) - 1; ++i)
+//   for (size_t i = old_len; i < vec_len(*v) - 1; ++i)
 //     (*v)[i] = null;
 //   return res;
 // }
