@@ -115,7 +115,7 @@ fields :                  { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
        | field            { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
        | fields ',' field { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
-field : ID expr { $$ = node_id_e(a, $1->as.id, $2); }
+field : ID '=' expr { $$ = node_id_e(a, $1->as.id, $3); }
 
 exprs :                { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
       | expr           { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }

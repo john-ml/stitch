@@ -9,17 +9,17 @@ octuple(z int) int:
 
 deref(p *int) int: *p
 
-proj(p {x int, y int}) int: p.x
-
 index(p **int, i int) int: p[i][i]
 
 dup(x int) {l int, r int}:
-  {l x, r x}
+  {l = x, r = x}
 
-inl(x int) <l int, r int>:
+proj[R](p {x int; R}) int: p.x
+
+inl[C](x int) <l int; C>:
   l@x
 
-inr(x int) <l int, r int>:
+inr[C](x int) <r int; C>:
   r@x
 
 nested(x int) int:
@@ -52,12 +52,12 @@ octuple(z):
 
 deref(p): *p
 
-proj(p): p.x
-
 index(p, i): p[i][i]
 
 dup(x):
-  {l x, r x}
+  {l = x, r = x}
+
+proj(p): p.x
 
 inl(x):
   l@x
@@ -87,11 +87,22 @@ extract(xy):
   | r@y -> y
   end
 
-# proj_x[A Num Show, B Show](s {x A, y B}) A:
-#   s.x
-# 
-# proj_x[A, R](s {x A; R}) A:
-#   s.x
-# 
-# f(s *int) A:
-#   s.x
+# plus[Num A, Num B](p {x A, y B}, q {x A, y B}) {x A, y B}:
+#   {x = p.x + q.x, y = p.y + q.y}
+
+# trait[A](Eq A):
+#   __eq__ (A, A) -> bool
+
+# trait[Eq A](Ord A):
+#   cmp (A, A) -> <lt, eq, gt>
+
+# impl(Eq i32):
+#   __eq__(a, b):
+#      a == b
+
+# impl[Eq A, Eq B](Eq {0 A, 1 B}):
+#   __eq__(a, b):
+#     a.0 == b.0 && a.1 == b.1
+
+# impl[Eq A, Eq R](Eq {A; R}):
+#   __eq__(

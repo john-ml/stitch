@@ -267,7 +267,7 @@ void node_pp_(stab_t t, FILE *fp, node_p e, int lvl) {
     case EXP_RECORD: {
       fputc('{', fp);
       PP_VEC_COMMA_SEP(node_p, field, e->as.record,
-        node_pp_id_e(t, fp, field, lvl, " ");
+        node_pp_id_e(t, fp, field, lvl, " = ");
       )
       fputc('}', fp);
     } break;
