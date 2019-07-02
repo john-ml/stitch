@@ -13,7 +13,4 @@
 // on the returned union-find instance as needed.
 uf_t infer_types(arena_p *a, node_p prgm);
 
-// Simple check of fully annotated program
-void check_types(stab_t t, node_p const prgm);
-
 #endif // TYPING_INCLUDED_H

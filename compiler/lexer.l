@@ -41,6 +41,8 @@ char *yytextunescape() {
 case                          return CASE;
 end                           return END;
 
+#.*$                          ;
+
 0|[1-9][0-9]*                 yylval = node_num(a, atoi(yytext)); return NUM;
 [a-zA-Z][a-zA-Z0-9_]*         yylval = node_id(a, stab_add(a, interned, yytext)); return ID;
 \"(\\.|[^\\"])*\"             { char *s = yytextunescape();

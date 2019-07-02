@@ -53,11 +53,11 @@ func : ID '(' ty_fields ')' type_opt ':' fn_body {
 type_opt :      { $$ = NULL; }
          | type { $$ = $1; }
 
-// poly_opt : {}
-//          | '[' polys ']' {}
-
-// polys : ID       {}
-//       | polys ID {}
+// poly_opt :               { $$ = node_vec(a, vec_new(a, sizeof(sid_t))); }
+//          | '[' polys ']' { $$ = $2; }
+// 
+// polys : ID       { $$ = node_vec(a, vec_sing(a, sizeof(sid_t), (any_t)&$1->as.id)); }
+//       | polys ID { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$2->as.id); $$ = $1; }
 
 fn_body : body | expr { $$ = $1; }
 
@@ -115,7 +115,7 @@ fields :                  { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
        | field            { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
        | fields ',' field { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
-field : ID '=' expr { $$ = node_id_e(a, $1->as.id, $3); }
+field : ID expr { $$ = node_id_e(a, $1->as.id, $2); }
 
 exprs :                { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
       | expr           { $$ = node_vec(a, vec_sing(a, sizeof($1), (any_t)&$1)); }
@@ -125,5 +125,9 @@ exprs :                { $$ = node_vec(a, vec_new(a, sizeof(node_p))); }
 
 void yyerror(node_p *out, stab_t *interned, arena_p *a, char const *s) {
   puts(s);
+  arena_del(*a);
+  if (yyin != stdin)
+    fclose(yyin);
+  yylex_destroy();
   exit(1);
 }

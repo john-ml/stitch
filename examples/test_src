@@ -14,7 +14,7 @@ proj(p {x int, y int}) int: p.x
 index(p **int, i int) int: p[i][i]
 
 dup(x int) {l int, r int}:
-  {l = x, r = x}
+  {l x, r x}
 
 inl(x int) <l int, r int>:
   l@x
@@ -57,7 +57,7 @@ proj(p): p.x
 index(p, i): p[i][i]
 
 dup(x):
-  {l = x, r = x}
+  {l x, r x}
 
 inl(x):
   l@x
@@ -86,3 +86,12 @@ extract(xy):
   | l@x -> x
   | r@y -> y
   end
+
+# proj_x[A Num Show, B Show](s {x A, y B}) A:
+#   s.x
+# 
+# proj_x[A, R](s {x A; R}) A:
+#   s.x
+# 
+# f(s *int) A:
+#   s.x

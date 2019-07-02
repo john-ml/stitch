@@ -1,6 +1,5 @@
 #include "typing.h"
 
-#include "misc.h"
 #include "vec.h"
 #include <stdio.h>
 #include <stdlib.h>
