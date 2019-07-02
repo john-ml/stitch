@@ -1,12 +1,26 @@
 #include "typing.h"
 
 #include "misc.h"
-#include "pair.h"
 #include "vec.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-uf_t infer_types(node_t prgm) {
+// Fill out any missing annotations in the given function bundle
+uf_t infer_bundle(arena_p *a, VEC(node_t) bundle) {
+  // TODO
+}
+
+// Divide the program into mutually recursive bundles of functions
+// and sort the bundles by their dependencies in the call graph.
+// Space for the bundles is allocated in the secondary arena a1.
+VEC(VEC(node_t)) func_sccs(arena_p *a1, VEC(node_t) funcs) {
+}
+
+uf_t infer_types(arena_p *a, node_t prgm) {
+  // Create a1 for bundles
+  // func_sccs to get bundles
+  // For each bundle, infer polymorphic types
+  // Destroy a1
   uf_t u = uf_new();
   fprintf(stderr, "infer_types not implemented\n");
   exit(1);
