@@ -87,22 +87,40 @@ extract(xy):
   | r@y -> y
   end
 
-# plus[Num A, Num B](p {x A, y B}, q {x A, y B}) {x A, y B}:
-#   {x = p.x + q.x, y = p.y + q.y}
+plus[A num, B num](p {x A, y B}, q {x A, y B}) {x A, y B}:
+  {x = p.x + q.x, y = p.y + q.y}
 
-# trait[A](Eq A):
-#   __eq__ (A, A) -> bool
+trait[A](A eq)
+  __eq__(A, A) bool
+end
 
-# trait[Eq A](Ord A):
-#   cmp (A, A) -> <lt, eq, gt>
+trait[A eq](A ord)
+  cmp(A, A) i32
+end
 
-# impl(Eq i32):
-#   __eq__(a, b):
-#      a == b
+impl(i32 eq)
+  __eq__(a, b):
+    a == b
+end
 
-# impl[Eq A, Eq B](Eq {0 A, 1 B}):
-#   __eq__(a, b):
-#     a.0 == b.0 && a.1 == b.1
+impl(i32 eq)
+  cmp(a, b):
+    a - b
+end
 
-# impl[Eq A, Eq R](Eq {A; R}):
-#   __eq__(
+type vec(A): {len u64, cap u64, data *A}
+
+impl[A eq](vec(A) eq)
+  __eq__(a, b):
+    a.len == b.len
+    && a.cap == b.cap
+    && (
+      i = 0;
+      rec:
+        if i >= a.len then
+          false
+        else (
+          i := i + 1;
+          if a.data[i] == b.data[i] then rec else false
+        )
+    )

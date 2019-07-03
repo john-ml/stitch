@@ -53,6 +53,9 @@ func : ID '(' ty_fields ')' type_opt ':' fn_body {
 type_opt :      { $$ = NULL; }
          | type { $$ = $1; }
 
+anno_opt :          { $$ = NULL; }
+         | ':' type { $$ = $2; }
+
 // poly_opt :               { $$ = node_vec(a, vec_new(a, sizeof(sid_t))); }
 //          | '[' polys ']' { $$ = $2; }
 // 
@@ -85,9 +88,6 @@ ty_fields :                        { $$ = node_vec(a, vec_new(a, sizeof(node_p))
           | ty_fields ',' ty_field { vec_add(a, (vec_p)&$1->as.vec, (any_t)&$3); $$ = $1; }
 
 ty_field : ID type_opt { $$ = node_id_e(a, $1->as.id, $2); }
-
-anno_opt :          { $$ = NULL; }
-         | ':' type { $$ = $2; }
 
 expr : ID | NUM | STR        { $$ = $1; }
      | expr '+' expr         { $$ = node_bop(a, $1, BOP_ADD, $3); }
