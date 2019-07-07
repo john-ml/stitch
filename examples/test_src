@@ -16,111 +16,77 @@ dup(x int) {l int, r int}:
 
 proj[R](p {x int; R}) int: p.x
 
-inl[C](x int) <l int; C>:
-  l@x
+id[A](x A) A: x
 
-inr[C](x int) <r int; C>:
-  r@x
+id_int(x int) int: id@[int](x)
 
-nested(x int) int:
-  y: int = (
-    z: int = x + x;
-    z := z + 2;
-    z
-  );
-  y + y
-
-main(argc int, argv **char) void:
-  print("hello, world\n")
-
-extract(xy <l int, r int>) int:
-  res: int =
-    case xy
-    | l@x -> x
-    | r@y -> y
-    end;
-  res
-
-quadruple(x):
-  y = x + x;
-  z = x * 2;
-  y + z
-
-octuple(z):
-  z = quadruple(x);
-  z + z
-
-deref(p): *p
-
-index(p, i): p[i][i]
-
-dup(x):
-  {l = x, r = x}
-
-proj(p): p.x
-
-inl(x):
-  l@x
-
-inr(x):
-  r@x
-
-nested(x):
-  y = (
-    z = x + x;
-    z := z + 2;
-    z
-  );
-  y + y
-
-extract(xy):
-  res =
-    case xy
-    | l@x -> x
-    | r@y -> y
-    end;
-  res
-
-extract(xy):
-  case xy
-  | l@x -> x
-  | r@y -> y
-  end
-
-plus[A num, B num](p {x A, y B}, q {x A, y B}) {x A, y B}:
-  {x = p.x + q.x, y = p.y + q.y}
-
-trait[A](A eq)
-  __eq__(A, A) bool
-end
-
-trait[A eq](A ord)
-  cmp(A, A) i32
-end
-
-impl(i32 eq)
-  __eq__(a, b):
-    a == b
-end
-
-impl(i32 eq)
-  cmp(a, b):
-    a - b
-end
-
-type vec(A): {len u64, cap u64, data *A}
-
-impl[A eq](vec(A) eq)
-  __eq__(a, b):
-    a.len == b.len
-    && a.cap == b.cap
-    && (
-      i = 0;
-      rec:
-        if i >= a.len then
-          false
-        else (
-          i := i + 1;
-          if a.data[i] == b.data[i] then rec else false
-        )
-    )
+# inl[C](x int) <l int; C>:
+#   l@x
+# 
+# inr[C](x int) <r int; C>:
+#   r@x
+# 
+# nested(x int) int:
+#   y: int = (
+#     z: int = x + x;
+#     z := z + 2;
+#     z
+#   );
+#   y + y
+# 
+# main(argc int, argv **char) void:
+#   print("hello, world\n")
+# 
+# extract(xy <l int, r int>) int:
+#   res: int =
+#     case xy {
+#       l x: x,
+#       r y: y
+#     };
+#   res
+# 
+# quadruple(x):
+#   y = x + x;
+#   z = x * 2;
+#   y + z
+# 
+# octuple(z):
+#   z = quadruple(x);
+#   z + z
+# 
+# deref(p): *p
+# 
+# index(p, i): p[i][i]
+# 
+# dup(x):
+#   {l = x, r = x}
+# 
+# proj(p): p.x
+# 
+# inl(x):
+#   l@x
+# 
+# inr(x):
+#   r@x
+# 
+# nested(x):
+#   y = (
+#     z = x + x;
+#     z := z + 2;
+#     z
+#   );
+#   y + y
+# 
+# extract(xy):
+#   res =
+#     case xy {
+#       l x: x,
+#       r y: y
+#     };
+#   res
+# 
+# extract(xy):
+#   case xy {
+#     l x: x,
+#     r y: y
+#   }
