@@ -29,15 +29,15 @@ node_p node_body(arena_p *a, VEC(node_p) stmts, node_p ret) {
   MK(node_t, EXP_BODY, body, .stmts = stmts, .ret = ret);
 }
 
-node_p node_py_record(arena_p *a, VEC(node_p) fields) {
+node_p node_ty_record(arena_p *a, VEC(node_p) fields) {
   MK_SING(node_t, EXP_TY_RECORD, ty_record, fields);
 }
 
-node_p node_py_variant(arena_p *a, VEC(node_p) fields) {
+node_p node_ty_variant(arena_p *a, VEC(node_p) fields) {
   MK_SING(node_t, EXP_TY_VARIANT, ty_variant, fields);
 }
 
-node_p node_py_ptr(arena_p *a, node_p ty) { MK_SING(node_t, EXP_TY_PTR, ty_ptr, ty); }
+node_p node_ty_ptr(arena_p *a, node_p ty) { MK_SING(node_t, EXP_TY_PTR, ty_ptr, ty); }
 
 node_p node_fptr(arena_p *a, VEC(node_p) args, node_p ret) {
   MK(node_t, EXP_FPTR, fptr, .args = args, .ret = ret);
