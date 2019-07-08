@@ -1,6 +1,6 @@
 # Stitch
 
-A simple expression-oriented language.
+A simple expression-oriented language with fancy types hidden by strong inference.
 
 ## Syntax and general overview
 
@@ -225,6 +225,10 @@ type list4(A) = <nil {}, cons {hd A, tl *list4(A)}>
 type list5(A) = <nil {}, cons {hd A, tl *list3(A)}>
 ```
 
+This can be done by
+[putting every alias into a normal form](http://cristal.inria.fr/~fpottier/publis/gauthier-fpottier-icfp04.pdf), where
+equality and unification are easy.
+
 In exchange, we gain the ability to write programs over recursive types
 without ever explicitly declaring them. For example, the following program
 evaluates simple expressions over boolean and integer values:
@@ -391,3 +395,39 @@ bottom[A]() A = omega(omega)
 
 but they can be ruled out by requiring that every recursive invocation of a type
 alias be guarded by at least one pointer type constructor.
+
+### Traits
+
+Traits are restricted compared to in other languages:
+- No sub-/super-classing
+
+They're mainly for operator overloading:
+
+```bash
+trait A eq:
+  __eq__ (A, A) -> bool
+
+trait A ord:
+  __lt__ (A, A) -> bool
+  __gt__ (A, A) -> bool
+  __leq__ (A, A) -> bool
+  __geq__ (A, A) -> bool
+
+trait A bool:
+  __bool__ A -> bool
+
+trait A log:
+  __and__ (A, A) -> A
+  __or__ (A, A) -> A
+```
+
+`bool` and `log` allow for overloading of:
+- `if .. then .. else`
+- Non-short-circuiting `&` and `|`
+- Short-circuiting `&&` and `||`
+
+```bash
+if p then a else b -----> if __bool__(p) then a else b
+a && b             -----> if a then a & b else a
+a || b             -----> if a then a else a | b
+```
