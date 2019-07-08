@@ -465,3 +465,20 @@ impl(A eq) vec(A) eq {
     )
 }
 ```
+
+Constraints are automatically inferred:
+
+```bash
+and_fold(xs, e) =
+  case *xs {
+    nil _ -> e,
+    cons xs -> xs.hd && and_fold(xs.tl)
+  }
+```
+
+yields
+
+```bash
+type T(A, B, R) = *<nil A, cons {hd B, tl T; R}>
+and_fold[A, B bool log, R](xs T(A, B, R), e B) B = ...
+```
