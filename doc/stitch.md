@@ -86,6 +86,18 @@ checked_div(a i32, b i32) <none {}, some i32> =
   if b == 0 then none@{} else some @ a/b
 ```
 
+`dyn` is used to create a heap-allocated value:
+
+```bash
+type list(A) = *<nil {}, cons {hd A, tl list(A)}>
+
+countdown(n i32) list(i32) =
+  if n < 0 then
+    dyn nil@{}
+  else
+    dyn cons @ {hd = n, tl = countdown(n - 1)}
+```
+
 ## Control flow
 
 ### Labelled expressions
