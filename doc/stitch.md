@@ -389,5 +389,5 @@ omega[R](f T(R)) R = f(f)
 bottom[A]() A = omega(omega)
 ```
 
-but `bottom[A]() A = bottom()` will typecheck anyway, and it's impossible to construct
-a value of type `T(R)`.
+but they can be ruled out by requiring that every recursive invocation of a type
+alias be guarded by at least one pointer type constructor.
