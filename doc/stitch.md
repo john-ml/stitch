@@ -320,3 +320,62 @@ type T(A, R1) = *<nil A, cons {tl T; R1}>
 type R = *<nil {}, cons {hd int, tl R}>
 zeros_like[A, R1](xs T(A, R1)) R = ...
 ```
+
+Or, on a simplified version of expression evaluator,
+
+```bash
+eval_int_exp(e) =
+  case *e {
+    lit i -> i,
+    shear e -> eval_int_exp(e.a) * eval_int_exp(e.b) + eval_int_exp(e.c),
+    ifte e ->
+      if eval_bool_exp(e.p) then
+        eval_int_exp(e.a)
+      else
+        eval_int_exp(e.b)
+  }
+
+eval_bool_exp(e) =
+  case *e {
+    lit b -> b,
+    nand e -> !(eval_bool_exp(e.a) && eval_int_exp(e.b)),
+    leq e -> eval_int_exp(e.a) <= eval_int_exp(e.b)
+  }
+```
+
+yields the constraints
+
+```bash
+type S =
+  *<lit i32,
+    shear {a S, b S, c S; R1},
+    ifte {p T, a T, b T; R2}>
+
+type T =
+  *<lit bool,
+    nand {a T, b T; R3},
+    leq {a S, b S; R4}>
+
+eval_int_exp(e S) i32 = ...
+
+eval_bool_exp(e T) bool = ...
+```
+
+which, after closing over all free variables in the definitions
+for `S` and `T` and generalizing `eval_int_exp` and `eval_bool_exp`, yields
+
+```bash
+type S(R1, R2, R3, R4) =
+  *<lit i32,
+    shear {a S(R1, R2, R3, R4), b S(R1, R2, R3, R4), c S(R1, R2, R3, R4); R1},
+    ifte {p T(R1, R2, R3, R4), a T(R1, R2, R3, R4), b T(R1, R2, R3, R4); R2}>
+
+type T(R1, R2, R3, R4) =
+  *<lit bool,
+    nand {a T(R1, R2, R3, R4), b T(R1, R2, R3, R4); R3},
+    leq {a S(R1, R2, R3, R4), b S(R1, R2, R3, R4); R4}>
+
+eval_int_exp[R1, R2, R3, R4](e S(R1, R2, R3, R4)) i32 = ...
+
+eval_bool_exp[R1, R2, R3, R4](e T(R1, R2, R3, R4)) bool = ...
+```
