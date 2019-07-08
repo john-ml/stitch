@@ -86,6 +86,18 @@ checked_div(a i32, b i32) <none {}, some i32> =
   if b == 0 then none@{} else some @ a/b
 ```
 
+`when` can be used to branch on multiple conditional expressions:
+
+```bash
+categorize(i) =
+  when {
+    i < 0 -> "invalid input",
+    i < 33 -> "small",
+    i < 66 -> "medium",
+    else -> "large"
+  }
+```
+
 `dyn` is used to create a heap-allocated value:
 
 ```bash
@@ -400,25 +412,28 @@ alias be guarded by at least one pointer type constructor.
 
 Traits are restricted compared to in other languages:
 - No sub-/super-classing
+- No polymorphic methods
+- Single parameter only
+- No higher kinded traits
 
 They're mainly for operator overloading:
 
 ```bash
-trait A eq:
-  __eq__ (A, A) -> bool
+trait A eq {__eq__ (A, A) -> bool}
 
-trait A ord:
-  __lt__ (A, A) -> bool
-  __gt__ (A, A) -> bool
-  __leq__ (A, A) -> bool
+trait A ord {
+  __lt__ (A, A) -> bool,
+  __gt__ (A, A) -> bool,
+  __leq__ (A, A) -> bool,
   __geq__ (A, A) -> bool
+}
 
-trait A bool:
-  __bool__ A -> bool
+trait A bool {__bool__ A -> bool}
 
-trait A log:
-  __and__ (A, A) -> A
+trait A log {
+  __and__ (A, A) -> A,
   __or__ (A, A) -> A
+}
 ```
 
 `bool` and `log` allow for overloading of:
@@ -430,4 +445,23 @@ trait A log:
 if p then a else b -----> if __bool__(p) then a else b
 a && b             -----> if a then a & b else a
 a || b             -----> if a then a else a | b
+```
+
+Instances can be declared with `impl`, and can depend on other instances:
+
+```bash
+type vec(A) = {len u64, cap u64, data *A}
+impl(A eq) vec(A) eq {
+  __eq__(v, w) =
+    v.len == w.len
+    && (
+      i = 0;
+      rec:
+        when {
+          i >= v.len -> true,
+          v[i] != w[i] -> false,
+          else -> i := i + 1; rec
+        }
+    )
+}
 ```
