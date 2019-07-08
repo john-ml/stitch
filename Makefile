@@ -14,4 +14,4 @@ clean:
 	rm stitch parser.tab.* lexer.*
 
 test: stitch
-	valgrind --leak-check=full --show-leak-kinds=all ./stitch examples/test_src
+	valgrind --leak-check=full --show-leak-kinds=all ./stitch examples/test_src.st

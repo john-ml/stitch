@@ -38,8 +38,12 @@ char *yytextunescape() {
 [|<>@=:;,*&+.\[\](){}]        return yytext[0];
 :=                            return ASGN;
 ->                            return RARROW;
+as                            return AS;
 case                          return CASE;
-end                           return END;
+type                          return TYPE;
+if                            return IF;
+then                          return THEN;
+else                          return ELSE;
 
 #.*$                          ;
 
