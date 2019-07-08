@@ -379,3 +379,15 @@ eval_int_exp[R1, R2, R3, R4](e S(R1, R2, R3, R4)) i32 = ...
 
 eval_bool_exp[R1, R2, R3, R4](e T(R1, R2, R3, R4)) bool = ...
 ```
+
+Eliding occurs check doesn't break anything by itself. It allows bizarre things like:
+
+```bash
+type T(R) = T(R) -> R
+omega[R](f T(R)) R = f(f)
+
+bottom[A]() A = omega(omega)
+```
+
+but `bottom[A]() A = bottom()` will typecheck anyway, and it's impossible to construct
+a value of type `T(R)`.
