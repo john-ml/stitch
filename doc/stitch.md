@@ -259,3 +259,52 @@ eval_int_exp(e t1) i32 = ...
 
 eval_bool_exp(e t2) bool = ...
 ```
+
+...though, it will actually infer the following polymorphic signatures:
+
+```bash
+type t1(R1, R2, R3, R4, R5, R6) = 
+  *<lit i32,
+    plus {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R1}, 
+    mult {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R2}, 
+    ifte {p t2(R1, R2, R3, R4, R5, R6), a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R3}>
+
+type t2(R1, R2, R3, R4, R5, R6) =
+  *<lit bool,
+    and {a t2(R1, R2, R3, R4, R5, R6), b t2(R1, R2, R3, R4, R5, R6); R4},
+    not {a t2(R1, R2, R3, R4, R5, R6); R5},
+    leq {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R6}>
+
+eval_int_exp[R1, R2, R3, R4, R5, R6](e t1(R1, R2, R3, R4, R5, R6)) i32 = ...
+
+eval_bool_exp[R1, R2, R3, R4, R5, R6](e t2(R1, R2, R3, R4, R5, R6)) bool = ...
+```
+
+This might be doable using a modified version of HM inference where we omit the occurs check.
+For example,
+
+```bash
+zeros_like(xs) =
+  case *xs {
+    nil _ -> dyn nil@{}
+    cons xs -> dyn cons @ {hd = 0, tl = zeros_like(xs.tl)}
+  }
+```
+
+yields the constraints
+
+```bash
+type T = *<nil A, cons {tl T; R1}>
+type R = *<nil {}, cons {hd int, tl R}>
+zeros_like(xs T) R = ...
+```
+
+where `A` and `R1` are unsolved metavariables.
+Then, when generalizing, all type aliases get extra type parameters corresponding to
+each unsolved metavariable:
+
+```bash
+type T(A, R1) = *<nil A, cons {tl T; R1}>
+type R = *<nil {}, cons {hd int, tl R}>
+zeros_like[A, R1](xs T(A, R1)) R = ...
+```
