@@ -306,6 +306,85 @@ eval_int_exp[R1, R2, R3, R4, R5, R6](e t1(R1, R2, R3, R4, R5, R6)) i32 = ...
 eval_bool_exp[R1, R2, R3, R4, R5, R6](e t2(R1, R2, R3, R4, R5, R6)) bool = ...
 ```
 
+### Traits
+
+Traits are restricted compared to in other languages:
+- No sub-/super-classing
+- No polymorphic methods
+- Single parameter only
+- No higher kinded traits
+
+They're mainly for operator overloading:
+
+```bash
+trait A eq {__eq__ (A, A) -> bool}
+
+trait A ord {
+  __lt__ (A, A) -> bool,
+  __gt__ (A, A) -> bool,
+  __leq__ (A, A) -> bool,
+  __geq__ (A, A) -> bool
+}
+
+trait A bool {__bool__ A -> bool}
+
+trait A log {
+  __and__ (A, A) -> A,
+  __or__ (A, A) -> A
+}
+```
+
+`bool` and `log` allow for overloading of:
+- `if .. then .. else`
+- Non-short-circuiting `&` and `|`
+- Short-circuiting `&&` and `||`
+
+```bash
+if p then a else b -----> if __bool__(p) then a else b
+a && b             -----> if a then a & b else a
+a || b             -----> if a then a else a | b
+```
+
+Instances can be declared with `impl`, and can depend on other instances:
+
+```bash
+type vec(A) = {len u64, cap u64, data *A}
+impl(A eq) vec(A) eq {
+  __eq__(v, w) =
+    v.len == w.len
+    && (
+      i = 0;
+      rec:
+        when {
+          i >= v.len -> true,
+          v[i] != w[i] -> false,
+          else -> i := i + 1; rec
+        }
+    )
+}
+```
+
+Constraints are automatically inferred:
+
+```bash
+and_fold(xs, e) =
+  case *xs {
+    nil _ -> e,
+    cons xs -> xs.hd && and_fold(xs.tl)
+  }
+```
+
+yields
+
+```bash
+type T(A, B, R) = *<nil A, cons {hd B, tl T; R}>
+and_fold[A, B bool log, R](xs T(A, B, R), e B) B = ...
+```
+
+## Notes for implementation
+
+### Inferrnig recursive types
+
 This might be doable using a modified version of HM inference where we omit the occurs check.
 For example,
 
@@ -406,7 +485,7 @@ bottom[A]() A = omega(omega)
 but they can be ruled out by requiring that every recursive invocation of a type
 alias be guarded by at least one pointer type constructor.
 
-#### Deciding equality between recursive types
+### Deciding equality between recursive types
 
 Simplification: eliminate mutual recursion by repeatedly unfolding
 aliases and ignore the fact that type aliases can take arguments.
@@ -481,78 +560,3 @@ will take time proportional to lcm(p, q).
 
 [An ancient text](http://cristal.inria.fr/~fpottier/publis/gauthier-fpottier-icfp04.pdf)
 (citation 14) speaks of a linear time algorithm for deciding equality, but it's in French.
-
-### Traits
-
-Traits are restricted compared to in other languages:
-- No sub-/super-classing
-- No polymorphic methods
-- Single parameter only
-- No higher kinded traits
-
-They're mainly for operator overloading:
-
-```bash
-trait A eq {__eq__ (A, A) -> bool}
-
-trait A ord {
-  __lt__ (A, A) -> bool,
-  __gt__ (A, A) -> bool,
-  __leq__ (A, A) -> bool,
-  __geq__ (A, A) -> bool
-}
-
-trait A bool {__bool__ A -> bool}
-
-trait A log {
-  __and__ (A, A) -> A,
-  __or__ (A, A) -> A
-}
-```
-
-`bool` and `log` allow for overloading of:
-- `if .. then .. else`
-- Non-short-circuiting `&` and `|`
-- Short-circuiting `&&` and `||`
-
-```bash
-if p then a else b -----> if __bool__(p) then a else b
-a && b             -----> if a then a & b else a
-a || b             -----> if a then a else a | b
-```
-
-Instances can be declared with `impl`, and can depend on other instances:
-
-```bash
-type vec(A) = {len u64, cap u64, data *A}
-impl(A eq) vec(A) eq {
-  __eq__(v, w) =
-    v.len == w.len
-    && (
-      i = 0;
-      rec:
-        when {
-          i >= v.len -> true,
-          v[i] != w[i] -> false,
-          else -> i := i + 1; rec
-        }
-    )
-}
-```
-
-Constraints are automatically inferred:
-
-```bash
-and_fold(xs, e) =
-  case *xs {
-    nil _ -> e,
-    cons xs -> xs.hd && and_fold(xs.tl)
-  }
-```
-
-yields
-
-```bash
-type T(A, B, R) = *<nil A, cons {hd B, tl T; R}>
-and_fold[A, B bool log, R](xs T(A, B, R), e B) B = ...
-```
