@@ -444,18 +444,43 @@ Syntactic equality up to renaming isn't enough:
 Unification?
 
 ```hs
+-- Idea: when checking \mu u. s ==? \mu v. t, make the assumption
+-- u = v inside the subgoal s ==? t
+-- Simultaneously keep track of the unfoldings [u -> s] and [v -> t]
 unify : Env -> Type -> Type -> UnifyM ()
+
+-- Back-pointers are only equal if they were assumed equal at some point
 unify env u v = guard =<< liftA2 (==) (find u) (find v)
+
+-- Atoms must match exactly
 unify env a a = ret ()
+
+-- Type constructors are equal if all arguments are
 unify env (T \vec t1) (T \vec t2) = zipWithM_ (unify env) t1 t2
+
+-- If we can make a new equality assumption / extend the environment,
+-- do so; simultaneously unfold any back-pointers
 unify env (\mu u. s) (\mu v. t) = do
   union u v
   unify (extend [u -> s, v -> t] env) (unify s t)
 unify env u (\mu v. t) | env (\mu v. t) u = do
   union u v
   unify (extend [v -> t] env) t (lookup u env)
+  
+-- Even if we can't make any new assumptions / extend the environment,
+-- unfold any back-pointers
+unify env u t | env t u = unify env (lookup u env) t
+
+-- If the two types don't match even under all equality assumptions
+-- and after unfolding back-pointers, they can't be equal 
 unify _ _ _ = fail
 ```
+
+Worst case: `unify empty (\mu u. T^p(u)) (\mu v. T^q(v))`
+will take time proportional to lcm(p, q).
+
+[An ancient text](http://cristal.inria.fr/~fpottier/publis/gauthier-fpottier-icfp04.pdf)
+(citation 14) speaks of a linear time algorithm for deciding equality, but it's in French.
 
 ### Traits
 
