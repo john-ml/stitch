@@ -420,9 +420,6 @@ t \in type
   | v         (back-pointer)
 ```
 
-Also, because each `\mu` binder corresponds to a type alias, every bound
-name is unique.
-
 Syntactic equality up to renaming isn't enough:
 
 - One type can be folded differently than another:
@@ -447,11 +444,17 @@ Syntactic equality up to renaming isn't enough:
 Unification?
 
 ```hs
-unify : Type -> Type -> UnifyM ()
-unify v t | t v = unify t <$> find v
-unify (\mu v. t) t' | t' (\mu v. t) = union v t *> unify t t'
-unify a a = ret ()
-unify (T \vec t1) (T \vec t2) = zipWithM_ unify t1 t2
+unify : Env -> Type -> Type -> UnifyM ()
+unify env u v = guard =<< liftA2 (==) (find u) (find v)
+unify env a a = ret ()
+unify env (T \vec t1) (T \vec t2) = zipWithM_ (unify env) t1 t2
+unify env (\mu u. s) (\mu v. t) = do
+  union u v
+  unify (extend [u -> s, v -> t] env) (unify s t)
+unify env u (\mu v. t) | env (\mu v. t) u = do
+  union u v
+  unify (extend [v -> t] env) t (lookup u env)
+unify _ _ _ = fail
 ```
 
 ### Traits
