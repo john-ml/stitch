@@ -63,39 +63,11 @@ type either(A, B) = <left A, right B>
 type list(A) = <nil {}, cons {hd A, tl *list(A)}>
 ```
 
-Case expressions can be used to branch on sum types:
-
-```bash
-unwrap(x <none unit, some i32>, default i32) i32 =
-  case x {
-    none _ -> default,
-    some i -> i
-  }
-
-sum(xs *list(i32)) i32 =
-  case *x {
-    nil _ -> 0,
-    some x -> x.hd + sum(x.tl)
-  }
-```
-
 `@` is used to create values of sum types:
 
 ```bash
 checked_div(a i32, b i32) <none {}, some i32> =
   if b == 0 then none@{} else some @ a/b
-```
-
-`when` can be used to branch on multiple conditional expressions:
-
-```bash
-categorize(i) =
-  when {
-    i < 0 -> "invalid input",
-    i < 33 -> "small",
-    i < 66 -> "medium",
-    else -> "large"
-  }
 ```
 
 `dyn` is used to create a heap-allocated value:
@@ -112,7 +84,37 @@ countdown(n i32) list(i32) =
 
 ## Control flow
 
-### Labelled expressions
+### Branching
+
+Case expressions can be used to branch on sum types:
+
+```bash
+unwrap(x <none unit, some i32>, default i32) i32 =
+  case x {
+    none _ -> default,
+    some i -> i
+  }
+
+sum(xs *list(i32)) i32 =
+  case *x {
+    nil _ -> 0,
+    some x -> x.hd + sum(x.tl)
+  }
+```
+
+`when` can be used to branch on multiple conditional expressions:
+
+```bash
+categorize(i) =
+  when {
+    i < 0 -> "invalid input",
+    i < 33 -> "small",
+    i < 66 -> "medium",
+    else -> "large"
+  }
+```
+
+### Looping
 
 In place of looping constructs, expressions can be labelled
 and can refer to other labels in scope:
@@ -236,10 +238,6 @@ type list3(A) = opt({hd A, tl *list3(A)})
 type list4(A) = <nil {}, cons {hd A, tl *list4(A)}>
 type list5(A) = <nil {}, cons {hd A, tl *list3(A)}>
 ```
-
-This can be done by
-[putting every alias into a normal form](http://cristal.inria.fr/~fpottier/publis/gauthier-fpottier-icfp04.pdf), where
-equality and unification are easy.
 
 In exchange, we gain the ability to write programs over recursive types
 without ever explicitly declaring them. For example, the following program
@@ -407,6 +405,40 @@ bottom[A]() A = omega(omega)
 
 but they can be ruled out by requiring that every recursive invocation of a type
 alias be guarded by at least one pointer type constructor.
+
+#### Deciding equality between recursive types
+
+Simplification: eliminate mutual recursion by repeatedly unfolding
+aliases. Types are then
+
+```
+t \in type 
+  = a         (atom)
+  | T \vec t  (type constructor)
+  | \mu v. t  (recursive type)
+  | v         (back-pointer)
+```
+
+This alone isn't enough:
+
+- One type can be folded differently than another:
+
+    ```bash
+    \mu v. T(a, v) == T(a, \mu v. T(a, v))       # Unfolded outside \mu
+                   == T(a, T(a, \mu v. T(a, v)))
+                   == ...
+                   == \mu v. T(a, T(a, v))       # Unfolded inside \mu
+                   == \mu v. T(a, T(a, T(a, v)))
+                   == ...
+
+    \mu v. T(v, v) == T(\mu v. T(v, v), T(\mu v. T(v, v), \mu v. T(v, v))) # Both
+    ```
+
+- Different configurations of back-pointers can still refer to the same type:
+
+    ```bash
+    \mu v. T(v, v) == \mu v. T(\mu w. T(w, w), v)
+    ```
 
 ### Traits
 
