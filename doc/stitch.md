@@ -409,7 +409,8 @@ alias be guarded by at least one pointer type constructor.
 #### Deciding equality between recursive types
 
 Simplification: eliminate mutual recursion by repeatedly unfolding
-aliases. Types are then
+aliases and ignore the fact that type aliases can take arguments.
+Types are then
 
 ```
 t \in type 
@@ -418,6 +419,9 @@ t \in type
   | \mu v. t  (recursive type)
   | v         (back-pointer)
 ```
+
+Also, because each `\mu` binder corresponds to a type alias, every bound
+name is unique.
 
 Syntactic equality up to renaming isn't enough:
 
@@ -444,10 +448,10 @@ Unification?
 
 ```hs
 unify : Type -> Type -> UnifyM ()
-unify (\mu v1. t1) t2 | t2 (\mu v1. t1) = union v1 t1 *> unify t1 t2
+unify v t | t v = unify t <$> find v
+unify (\mu v. t) t' | t' (\mu v. t) = union v t *> unify t t'
 unify a a = ret ()
 unify (T \vec t1) (T \vec t2) = zipWithM_ unify t1 t2
-unify v1 v2 = liftA2 unify (find v1) (find v2)
 ```
 
 ### Traits
