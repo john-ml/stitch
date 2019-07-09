@@ -419,7 +419,7 @@ t \in type
   | v         (back-pointer)
 ```
 
-This alone isn't enough:
+Syntactic equality up to renaming isn't enough:
 
 - One type can be folded differently than another:
 
@@ -439,6 +439,16 @@ This alone isn't enough:
     ```bash
     \mu v. T(v, v) == \mu v. T(\mu w. T(w, w), v)
     ```
+
+Unification?
+
+```hs
+unify : Type -> Type -> UnifyM ()
+unify (\mu v1. t1) t2 | t2 (\mu v1. t1) = union v1 t1 *> unify t1 t2
+unify a a = ret ()
+unify (T \vec t1) (T \vec t2) = zipWithM_ unify t1 t2
+unify v1 v2 = liftA2 unify (find v1) (find v2)
+```
 
 ### Traits
 
