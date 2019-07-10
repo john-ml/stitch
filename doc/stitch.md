@@ -6,7 +6,7 @@ an emphasis on performance.
 - (+1) Full type inference, even for recursive data types
 - (+1) Generics and a simple trait system
 - (+1) C's unboxed data and manual control over pointers
-- (+1) C's runtime overhead (full specialization of traits & generics)
+- (+1) C's low runtime overhead (full specialization of traits & generics)
 - (+1) C's compiler optimizations (we transpile to it)
 - (-g<sub>64</sub>) C's memory safety
 
@@ -117,11 +117,10 @@ mut_factorial(n i32) i32 =
   rec: # The if-expression below is labelled `rec`
     if n == 1 then 
       res
-    else (
+    else
       res := res * n;
       n := n - 1;
-      rec # Next iteration
-    )
+      ..rec # Next iteration
 ```
 
 Expressions can only refer to labels in tail position, and a label is
@@ -143,8 +142,78 @@ For example, the following is allowed:
 ```bash
 arrays_equal(n u64, xs *i32, ys *i32) bool =
   i := 0;
-  rec: i >= n || xs[i] == ys[i] && (i := i + 1; rec)
+  rec: i >= n || xs[i] == ys[i] && (i := i + 1; ..rec)
 ```
+
+### Labels as values
+
+(In short: Labels are basically 0-argument continuations that
+don't require a closure.)
+
+Labels can be passed as parameters to functions.
+For example, the following
+definition of `find` will return immediately once an item
+is found rather than bubbling the value `true` all the way
+back up the call stack:
+
+```bash
+find(x i32, xs *list(i32)) bool =
+  # `..` delays the evaluation of the expression labelled `ret`
+  find_helper(x, xs, ..ret: true)
+
+# `success` is a label representing the suspended computation of a bool
+find_helper(x, xs, success ..bool) =
+  case *xs {
+    nil _ -> false,
+    cons xs ->
+      if x == xs.ht then
+        # Return to `ret` in the definition of find
+        # As before, a label can only be evaluated in tail position
+        ..success 
+      else
+        find_helper(x, xs, success)
+  }
+```
+
+Additionally:
+- The type of the label need not be the same as the type of the value
+  being currently computed (when you evaluate the label, control
+  returns to a place where the label's type makes sense)
+- Functions can take more than one label as argument and
+  can be polymorphic over the label type
+- Labels can be stored in data structures
+
+For example,
+
+```bash
+categorize[A, B, C, D](
+  i i32,
+  s {small <left ..A, right ..A>, medium ..B},
+  large ..C,
+  fail ..D
+) =
+  when {
+    i < 0 -> ..fail,
+    i < 3 -> 
+      case s.small {
+        left k -> ..k,
+        right k -> ..k
+      },
+    i < 6 -> ..s.medium,
+    else -> ..s.large
+  }
+```
+
+Despite all this, labels aren't first class. The following use
+of labels is not allowed:
+
+```bash
+bad(i i32) ..i32 = ..not_ok: i * i
+```
+
+The label `not_ok` 'escapes upwards'---after `bad` returns,
+`not_ok` contains information about a stack frame that no longer
+exists.
 
 ## Types
 
@@ -200,39 +269,6 @@ inl[A, C](x A) <left A; C> = left@x
 value of `inl`.
 Thus `inl` can return any sum type that contains the option `left`.
 
-During inference, the typechecker assumes that all `case` expressions
-are exhaustive. Thus running the inference algorithm on
-
-```bash
-f(x) =
-  case x {
-    tag1 _ -> true, 
-    tag2 _ -> false
-  }
-```
-
-yields
-
-```bash
-f[A, B](x <tag1 A, tag2 B>) bool = ...
-```
-
-The algorithm does not infer a column type, as that would imply that the `case`
-expression could be non-exhaustive.
-
-However, if we add a final catch-all pattern, then the algorithm _will_ infer
-a column type---it's possible for a `case` expression with a catch-all pattern
-to be polymorphic in additional variant options while remaining exhaustive:
-
-```bash
-f[A, B, C](x <tag1 A, tag2 B; C>) bool =
-  case x {
-    tag1 _ -> true,
-    tag2 _ -> false,
-    _ -> true
-  }
-```
-
 ### Traits
 
 Traits are restricted compared to in other languages:
@@ -262,29 +298,14 @@ if p then a else b -----> if __bool__(p) then a else b
 Instances can be declared with `impl`, and can depend on other instances:
 
 ```bash
-# A dynamically resizable array
-type vec(A) = {len u64, cap u64, data *A}
-
 # A linked list
 type list(A) = *<nil {}, cons {hd A, tl list(A)}>
 
-# If A is comparable, vec(A) is too
-impl(A eq) vec(A) eq {
-  __eq__(v, w) =
-    v.len == w.len
-    && (
-      i = 0;
-      rec:
-        i >= v.len
-        || v[i] == w[i] && (i := i + 1; rec)
-    )
-}
-
-# Ditto for lists
+# If A is comparable, list(A) is too
 impl(A eq) list(A) eq {
   __eq__(v, w) =
     case *v {
-      nil _ -> case *w {nil _ -> true, _ -> false}
+      nil _ -> case *w {nil _ -> true, _ -> false},
       cons v -> case *w {
         nil _ -> false,
         cons w -> v.hd == w.hd && v.tl == w.tl
@@ -405,6 +426,41 @@ countdown(n i32) list(i32) =
 ```
 
 ## Notes for implementation
+
+### Inferring columns
+
+During inference, the typechecker assumes that all `case` expressions
+are exhaustive. Thus running the inference algorithm on
+
+```bash
+f(x) =
+  case x {
+    tag1 _ -> true, 
+    tag2 _ -> false
+  }
+```
+
+yields
+
+```bash
+f[A, B](x <tag1 A, tag2 B>) bool = ...
+```
+
+The algorithm can't infer a column type because that would imply the `case`
+expression could be non-exhaustive.
+
+If we add a final catch-all pattern, then it's safe to infer a column
+type---it's possible for a `case` expression with a catch-all pattern
+to be polymorphic in additional variant options while remaining exhaustive:
+
+```bash
+f[A, B, C](x <tag1 A, tag2 B; C>) bool =
+  case x {
+    tag1 _ -> true,
+    tag2 _ -> false,
+    _ -> true
+  }
+```
 
 ### Inferring recursive types
 
@@ -648,3 +704,88 @@ that they are equal for the specific applications `\vec x` and `\vec y`.
 Normalizing all type aliases solves this by assigning a unique alias name
 for each specific application, and regular unification will take care of proving that
 substituting `\vec x` and `\vec y` into `u` and `v` actually produces equal infinite expansions.
+
+### Compiling labels
+
+```hs
+-- [[e]] k compiles an e with continuation k into C statements
+[[_]] : Expr -> (Expr -> Expr) -> C.Stmts
+[[ ..lbl: e ]] k =
+  jmp_buf lbl;
+  if (setjmp(lbl)) {
+    [[e]] id
+  } else {
+    [[k lbl]] id
+  }
+```
+
+For example,
+
+```hs
+f(x, y) = g(..l1: x + 1, ..l2: y + 1, ..l3: x*y + 1)
+```
+
+becomes
+
+```C
+int f(int x, int y) {
+  jmp_buf l1;
+  if (setjmp(l1)) {
+    return x + 1;
+  } else {
+    jmp_buf l2;
+    if (setjmp(l2)) {
+      return y + 1;
+    } else {
+      jmp_buf l3;
+      if (setjmp(l3)) {
+        return x*y + 1;
+      } else {
+        return g(l1, l2, l3);
+      }
+    }
+  }
+}
+```
+
+### Label escape analysis
+
+We might be able to trick the type checker into doing escape analysis.
+In the surface language each label has type `..T` for some type `T`.
+We can generate a unique metavariable for the type of each label, so that
+labels now have type `..(?A, T)`. Inference / unification proceed normally.
+
+Before generalization, we check if any metavariables
+corresponding to labels defined locally within a function body show
+up in its return type. (If so, those labels could escape upwards.)
+
+We generalize the label metavariables too, so functions can be polymorphic
+over them. Otherwise, the following would be rejected:
+
+```bash
+id_lbl[A](l: ..A) ..A = l
+
+f(x, l) =
+  _ = id_lbl(..l1: e);
+  if check_something(x, l1) then
+    l
+  else
+    id_lbl(l)
+```
+
+without a polymorphic `id_lbl`, its argument's label metavariable gets
+unified with both `l` and `l1`:
+
+```bash
+id_lbl[A](l: ..(?L1, A)) ..(?L1, A) = l
+
+f(x, l ..(?L1, A)) ..(?L1, A) =
+  _ = id_lbl(..l1 as ..(?L1, A): e);
+  if check_something(x, l1) then
+    l
+  else
+    id_lbl(l)
+```
+
+since `l1`'s metavariable (`?L1`) appears in the return type of `f`,
+it looks like `l1` could escape.
