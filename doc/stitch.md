@@ -109,7 +109,7 @@ categorize(i) =
 ### Looping
 
 In place of looping constructs, expressions can be labelled
-and can refer to other labels in scope:
+with `:` and can refer to other labels in scope with `..`:
 
 ```bash
 mut_factorial(n i32) i32 =
@@ -175,7 +175,20 @@ find_helper(x, xs, success ..bool) =
   }
 ```
 
-Additionally:
+(Though, this is just a contrived example. `find` is simple enough
+to be written as a normal loop:
+
+```bash
+find(x i32, xs *list(i32)) bool =
+  rec:
+    case *xs {
+      nil _ -> false,
+      cons xs -> x == xs.ht || (xs := xs.tl; rec)
+    }
+```
+)
+
+Note:
 - The type of the label need not be the same as the type of the value
   being currently computed (when you evaluate the label, control
   returns to a place where the label's type makes sense)
@@ -183,7 +196,7 @@ Additionally:
   can be polymorphic over the label type
 - Labels can be stored in data structures
 
-For example,
+As an example of all these:
 
 ```bash
 categorize[A, B, C, D](
@@ -213,7 +226,24 @@ bad(i i32) ..i32 = ..not_ok: i * i
 
 The label `not_ok` 'escapes upwards'---after `bad` returns,
 `not_ok` contains information about a stack frame that no longer
-exists.
+exists. The compiler performs a conservative escape analysis and
+only accepts programs in which it can prove that no label escapes
+upwards.
+
+This means rejecting some valid programs, like the following:
+
+```bash
+choose[A](l1 ..A, l2 ..A) ..A = l1
+
+f[A](ok ..A) ..A = choose(ok, ..not_ok: e)
+```
+
+`ok`'s lifetime is larger than that of `f`'s stack
+frame, because `f` receives it as an argument. Since `choose`
+always returns `ok`, this program will never crash at runtime.
+Nonetheless, the escape analysis conservatively assumes
+that `choose` might return `not_ok` (whose lifetime is smaller
+than that of `f`'s stack frame) and so rejects `f`.
 
 ## Types
 
@@ -764,6 +794,7 @@ over them. Otherwise, the following would be rejected:
 
 ```bash
 id_lbl[A](l: ..A) ..A = l
+check_something(_, _) bool = ...
 
 f(x, l) =
   _ = id_lbl(..l1: e);
@@ -778,6 +809,7 @@ unified with both `l` and `l1`:
 
 ```bash
 id_lbl[A](l: ..(?L1, A)) ..(?L1, A) = l
+check_something(_, _) bool = ...
 
 f(x, l ..(?L1, A)) ..(?L1, A) =
   _ = id_lbl(..l1 as ..(?L1, A): e);
@@ -788,4 +820,20 @@ f(x, l ..(?L1, A)) ..(?L1, A) =
 ```
 
 since `l1`'s metavariable (`?L1`) appears in the return type of `f`,
-it looks like `l1` could escape.
+it looks like `l1` could escape even though it can't.
+
+Potential complications:
+- Mutable update
+    - This analysis is still conservative:
+      to typecheck `x as ?t1 := e as ?t2`, need `?t1 = ?t2` which
+      will unify any labels in `?t2` that are trying to sneak out
+- User-defined type aliases
+    - Label metavariables aren't in the surface language, so users
+      can't talk about them
+- Recursive type aliases containing labels
+    - Label metavariables get closed over at generalization just 
+      like everything else
+    - Deciding type equality works the same too: the `..` type
+      constructor just takes 2 arguments now instead of 1
+- Trait methods that take in labels are now technically polymorphic
+    - :(
