@@ -827,11 +827,35 @@ f(x, l ..(?L1, A)) ..(?L1, A) =
 since `l1`'s metavariable (`?L1`) appears in the return type of `f`,
 it looks like `l1` could escape even though it can't.
 
+Complication: mutable update. Labels could sneak out by mutating
+arguments:
+
+```bash
+bad(p bool, q bool, l *..bool) i32 =
+  *l := ..uhoh: p && q;
+  0
+```
+
+`bad` puts `uhoh` into `l`, allowing the caller to compute
+`&&` of two random locations in memory using `..*l`.
+
+Fix: the problem is that, with mutation, the return type isn't the only
+way callees can yield values to callers. 
+So instead of just checking the return type for label metavariables,
+we have to check the argument types too.
+
+This is what `bad` looks like right before generalization:
+
+```bash
+bad(p bool, q bool, l *..(?L, bool)) i32 =
+  *l := ..uhoh as ..(?L, bool): p && q;
+  0
+```
+
+Now the program is rejected, sinec the metavariable for `uhoh`
+shows up in `l`'s type.
+
 Potential complications:
-- Mutable update
-    - This analysis is still conservative:
-      to typecheck `x as ?t1 := e as ?t2`, need `?t1 = ?t2` which
-      will unify any labels in `?t2` that are trying to sneak out
 - User-defined type aliases
     - Label metavariables aren't in the surface language, so users
       can't talk about them
