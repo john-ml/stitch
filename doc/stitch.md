@@ -383,7 +383,7 @@ and_fold[A, B bool log, R](xs T(A, B, R), e B) B = ...
 
 ## Notes for implementation
 
-### Inferrnig recursive types
+### Inferring recursive types
 
 This might be doable using a modified version of HM inference where we omit the occurs check.
 For example,
@@ -399,14 +399,14 @@ zeros_like(xs) =
 yields the constraints
 
 ```bash
-type T = *<nil A, cons {tl T; R1}>
+type T = *<nil ?A, cons {tl T; ?R1}>
 type R = *<nil {}, cons {hd int, tl R}>
 zeros_like(xs T) R = ...
 ```
 
-where `A` and `R1` are unsolved metavariables.
+where `A` and `R1` are metavariables.
 Then, when generalizing, all type aliases get extra type parameters corresponding to
-each unsolved metavariable:
+each metavariable:
 
 ```bash
 type T(A, R1) = *<nil A, cons {tl T; R1}>
@@ -441,20 +441,20 @@ yields the constraints
 ```bash
 type S =
   *<lit i32,
-    shear {a S, b S, c S; R1},
-    ifte {p T, a T, b T; R2}>
+    shear {a S, b S, c S; ?R1},
+    ifte {p T, a T, b T; ?R2}>
 
 type T =
   *<lit bool,
-    nand {a T, b T; R3},
-    leq {a S, b S; R4}>
+    nand {a T, b T; ?R3},
+    leq {a S, b S; ?R4}>
 
 eval_int_exp(e S) i32 = ...
 
 eval_bool_exp(e T) bool = ...
 ```
 
-which, after closing over all free variables in the definitions
+which, after closing over all metavariables in the definitions
 for `S` and `T` and generalizing `eval_int_exp` and `eval_bool_exp`, yields
 
 ```bash
@@ -488,7 +488,8 @@ alias be guarded by at least one pointer type constructor.
 ### Deciding equality between recursive types
 
 Simplification: eliminate mutual recursion by repeatedly unfolding
-aliases and ignore the fact that type aliases can take arguments.
+aliases and, for now, ignore the fact that type aliases can take arguments and
+that types will have metavariables in them.
 Types are then
 
 ```
@@ -560,3 +561,67 @@ will take time proportional to lcm(p, q).
 
 [An ancient text](http://cristal.inria.fr/~fpottier/publis/gauthier-fpottier-icfp04.pdf)
 (citation 14) speaks of a linear time algorithm for deciding equality, but it's in French.
+
+Desimplification 1: there are metavariables. Types are
+
+```
+t \in type 
+  = a         (atom)
+  | ?x        (metavariable)
+  | T \vec t  (type constructor)
+  | \mu v. t  (recursive type)
+  | v         (back-pointer)
+```
+
+`unify` as defined above seems simple enough to extend:
+
+```hs
+unify env ?x t | t ?x =
+  zonkWhnf ?x >>= \case
+    ?x' -> unionMeta ?x t
+    t' -> unify env t t'
+```
+
+Desimplification 2: type aliases take arguments. Types are
+
+```
+t \in type 
+  = a                           (atom)
+  | ?x                          (metavariable)
+  | T \vec t                    (type constructor)
+  | (\mu v(\vec A). t)(\vec t)  (recursive type alias with arguments \vec A,
+                                 applied to types \vec t)
+  | v                           (back-pointer)
+```
+
+During inference, there are two kinds of type aliases:
+- 'open': produced by what should've been a failed occurs check, and not yet generalized.
+  These could end up being type aliases that take arguments, but for now they are just
+  `\mu v. t`s where `t` might have some metavariables.
+- 'closed': type aliases that have already been closed over during generalization
+  or user-defined recursive type aliases. These can take arguments.
+
+Any time a closed type alias appears during inference, it'll be fully applied.
+We can normalize all these type aliases so that all of their arguments are
+fresh metavariables and give each full application a fresh new name:
+
+```hs
+norm : Type -> UnifyM NormalizedType
+norm (\mu v(\vec A). t)(\vec t) = do
+  ?xs <- freshMetas (length t)
+  w <- freshAlias
+  zipWithM_ union ?xs (\vec t)
+  ret (\mu w. t[w / v][?xs1 / A1][?xs2 / A2]..)
+```
+
+Now all closed terms are open, and we can represent recursive types the old way,
+as `\mu v. t`s.
+
+The old unification algorithm wouldn't have worked because the `u = v` trick makes
+too strong an assumption: given `(\mu u(\vec A). s)(\vec x) ==? (\mu v(\vec B). t)(\vec y)`,
+assuming `u = v` would mean that the type aliases are equal for all applications, when we really just want to assume
+that they are equal for the specific applications `\vec x` and `\vec y`.
+
+Normalizing all type aliases solves this by assigning a unique alias name
+for each specific application, and regular unification will take care of proving that
+substituting `\vec x` and `\vec y` into `u` and `v` actually produces equal infinite expansions.
