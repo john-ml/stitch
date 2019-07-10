@@ -106,7 +106,10 @@ categorize(i) =
   }
 ```
 
-### Looping
+### Labelled expressions
+
+(In short: Labels are basically 0-argument continuations that
+don't require a closure.)
 
 In place of looping constructs, expressions can be labelled
 with `:` and can refer to other labels in scope with `..`:
@@ -125,7 +128,6 @@ mut_factorial(n i32) i32 =
 
 Expressions can only refer to labels in tail position, and a label is
 in scope only within the expression that it is labelling.
-(It's a lot like a restricted `goto` that has to yield a value).
 
 Special case: the short-circuiting operators `&&` and `||` desugar to
 `if .. then .. else`s:
@@ -144,11 +146,6 @@ arrays_equal(n u64, xs *i32, ys *i32) bool =
   i := 0;
   rec: i >= n || xs[i] == ys[i] && (i := i + 1; ..rec)
 ```
-
-### Labels as values
-
-(In short: Labels are basically 0-argument continuations that
-don't require a closure.)
 
 Labels can be passed as parameters to functions.
 For example, the following
@@ -233,9 +230,10 @@ upwards.
 This means rejecting some valid programs, like the following:
 
 ```bash
-choose[A](l1 ..A, l2 ..A) ..A = l1
+choose[A](p bool, l1 ..A, l2 ..A) ..A =
+  if p then l1 else l2
 
-f[A](ok ..A) ..A = choose(ok, ..not_ok: e)
+f[A](ok ..A) ..A = choose(true, ok, ..not_ok: e)
 ```
 
 `ok`'s lifetime is larger than that of `f`'s stack
@@ -298,51 +296,6 @@ inl[A, C](x A) <left A; C> = left@x
 `C` is a _column_ representing any other options that could be in the return
 value of `inl`.
 Thus `inl` can return any sum type that contains the option `left`.
-
-### Traits
-
-Traits are restricted compared to in other languages:
-- Single parameter only
-- No sub-/super-classing
-- No polymorphic methods
-- No higher kinded traits
-
-They're mainly for operator overloading. Some examples:
-
-```bash
-# Equality (==)
-trait A eq {__eq__ (A, A) -> bool}
-# Inequality (<=)
-trait A ord {__leq__ (A, A) -> bool}
-# Truthiness
-trait A bool {__bool__ A -> bool}
-```
-
-`bool` allows for overloading of `if .. then .. else`
-(and, by extension, `&&` and `||`):
-
-```bash
-if p then a else b -----> if __bool__(p) then a else b
-```
-
-Instances can be declared with `impl`, and can depend on other instances:
-
-```bash
-# A linked list
-type list(A) = *<nil {}, cons {hd A, tl list(A)}>
-
-# If A is comparable, list(A) is too
-impl(A eq) list(A) eq {
-  __eq__(v, w) =
-    case *v {
-      nil _ -> case *w {nil _ -> true, _ -> false},
-      cons v -> case *w {
-        nil _ -> false,
-        cons w -> v.hd == w.hd && v.tl == w.tl
-      }
-    }
-}
-```
 
 ### Recursive types
 
@@ -438,21 +391,179 @@ type t2(R1, R2, R3, R4, R5, R6) =
     and {a t2(R1, R2, R3, R4, R5, R6), b t2(R1, R2, R3, R4, R5, R6); R4},
     not {a t2(R1, R2, R3, R4, R5, R6); R5},
     leq {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R6}>
+```
 
+### Traits
+
+Traits are restricted compared to in other languages:
+- Single parameter only
+- No sub-/super-classing
+- No polymorphic methods
+- No higher kinded traits
+
+They're mainly for operator overloading. Some examples:
+
+```bash
+# Equality (==)
+trait A eq {__eq__ (A, A) -> bool}
+# Inequality (<=)
+trait A ord {__leq__ (A, A) -> bool}
+# Truthiness
+trait A bool {__bool__ A -> bool}
+```
+
+`bool` allows for overloading of `if .. then .. else`
+(and, by extension, `&&` and `||`):
+
+```bash
+if p then a else b -----> if __bool__(p) then a else b
+```
+
+Instances can be declared with `impl`, and can depend on other instances:
+
+```bash
+# A linked list
+type list(A) = *<nil {}, cons {hd A, tl list(A)}>
+
+# If A is comparable, list(A) is too
+impl(A eq) list(A) eq {
+  __eq__(v, w) =
+    case *v {
+      nil _ -> case *w {nil _ -> true, _ -> false},
+      cons v -> case *w {
+        nil _ -> false,
+        cons w -> v.hd == w.hd && v.tl == w.tl
+      }
+    }
+}
+```
+
+There is one deeply magical trait, `chain`:
+
+```bash
+trait M chain { __chain__ (M(A), A -> M(B)) -> M(B) }
+
+type option(A) = <none {}, some A>
+
+impl option chain {
+  x <- m; e =
+    case m of {
+      none _ -> none@{},
+      some x -> e
+    }
+}
+```
+
+- Constrains a type alias, not a type
+- Method signature isn't actually possible
+- `x` in `x <- m; e` is substituted for `x` in `some x`
+- Functions aren't allowed to be polymorphic over `M chain`
+
+This isn't really a trait, but more like a type-directed macro.
+
+The above implementation for `option` allows for less tedious
+error handling with sum types. Instead of writing
+
+```bash
+safe_div(a i32, b i32) option(i32) =
+  if b == 0 then none@{} else some @ a/b
+
+divs(a, b, c, d, e) =
+  case safe_div(a, b) {
+    none _ -> none@{},
+    some ab ->
+      case safe_div(ab, c) {
+        none _ -> none@{},
+        some abc ->
+          case safe_div(abc, d) {
+            none _ -> none@{},
+            some abcd -> safe_div(abcd, e)
+          }
+      }
+  }
+```
+
+one can write
+
+```bash
+divs(a, b, c, d, e) =
+  ab <- safe_div(a, b);
+  abc <- safe_div(ab, c);
+  abcd <- safe_div(abc, d);
+  safe_div(abcd, e)
+```
+
+Additionally:
+```bash
+f(?a, ?b) -------> x <- a; y <- b; f(x, y)   (x, y fresh)
+```
+
+So the above could be written
+
+```bash
+divs(a, b, c, d, e) = safe_div(?safe_div(?safe_div(?safe_div(a, b), c), d), e)
 ```
 
 ### Memory
 
-`dyn` is used to create a heap-allocated value:
+There are two types of pointers:
+
+```bash
+type nullable(A) = *A
+type non_nullable(A) = &A
+```
+
+Subtyping: `&A <: *A`.
+
+Taking a reference to a local value with `&` always creates a
+non-nullable pointer. Since non-nullable references are always bound
+to a stack frame, ensuring non-nullability is exactly the same
+as ensuring that no label escapes upwards. Thus, the same escape
+analysis can be used to keep non-nullable pointers safe.
+
+`new` is used to allocate heap memory.
+It always yields a nullable pointer:
 
 ```bash
 type list(A) = *<nil {}, cons {hd A, tl list(A)}>
 
 countdown(n i32) list(i32) =
   if n < 0 then
-    dyn nil@{}
+    new nil@{}
   else
-    dyn cons @ {hd = n, tl = countdown(n - 1)}
+    new cons @ {hd = n, tl = countdown(n - 1)}
+```
+
+`del` is used to deallocate heap memory. It always
+returns an empty struct:
+
+```bash
+del_list(del_elt (A) -> {}, l list(A)) =
+  case *l {
+    nil _ -> del l,
+    cons l ->
+      _ = del_elt(l.hd);
+      _ = del_list(l.tl);
+      del l
+  }
+```
+
+`defer` can be used to push statements onto a 
+stack to be executed immediately before a function
+body returns:
+
+```bash
+sum(xs) =
+  case *xs {
+    nil _ -> 0,
+    cons xs -> xs.hd + sum(xs.tl)
+  }
+
+sum_countdowns(i, j, k) =
+  xs = countdown(i) defer _ = del_list(i);
+  ys = countdown(j) defer _ = del_list(j);
+  zs = countdown(k) defer _ = del_list(k);
+  sum(xs) + sum(ys) + sum(zs)
 ```
 
 ## Notes for implementation
@@ -500,8 +611,8 @@ For example,
 ```bash
 zeros_like(xs) =
   case *xs {
-    nil _ -> dyn nil@{}
-    cons xs -> dyn cons @ {hd = 0, tl = zeros_like(xs.tl)}
+    nil _ -> new nil@{}
+    cons xs -> new cons @ {hd = 0, tl = zeros_like(xs.tl)}
   }
 ```
 
@@ -837,7 +948,8 @@ bad(p bool, q bool, l *..bool) i32 =
 ```
 
 `bad` puts `uhoh` into `l`, allowing the caller to compute
-`&&` of two random locations in memory using `..*l`.
+`&&` of two random locations in memory (or, more likely, two
+random registers) using `..*l`.
 
 Fix: the problem is that, with mutation, the return type isn't the only
 way callees can yield values to callers. 
@@ -852,7 +964,7 @@ bad(p bool, q bool, l *..(?L, bool)) i32 =
   0
 ```
 
-Now the program is rejected, sinec the metavariable for `uhoh`
+Now the program is rejected, since the metavariable for `uhoh`
 shows up in `l`'s type.
 
 Potential complications:
@@ -872,4 +984,8 @@ Potential complications:
     - `..l: expression involving free labels l1 and l2` is safe because
       `l1` and `l2` must have larger lifetimes if you can talk about
       them inside `l`
+- Deferring labels or jumps to labels
 
+### Inference with pointer subtyping
+
+?
