@@ -1,6 +1,14 @@
 # Stitch
 
-A simple expression-oriented language with fancy types hidden by strong inference.
+An expression-oriented language with strong type inference and
+an emphasis on performance.
+
+- (+1) Full type inference, even for recursive data types
+- (+1) Generics and a simple trait system
+- (+1) C's unboxed data and manual control over pointers
+- (+1) C's runtime overhead (full specialization of traits & generics)
+- (+1) C's compiler optimizations (we transpile to it)
+- (-g<sub>64</sub>) C's memory safety
 
 ## Syntax and general overview
 
@@ -20,7 +28,8 @@ There are two kinds of statements:
 - `x = e` declares and initializes a new variable
 - `x := e` mutates an existing one
 
-If `e` is an expression and `s` is a statement, then `s; e` is an expression too:
+As in ML, if `e` is an expression and `s` is a statement,
+then `s; e` is an expression too:
 
 ```bash
 triple_factorial(x) =
@@ -33,11 +42,6 @@ triple_factorial(x) =
 Types can be manually specified:
 
 ```bash
-double(x i32) i32 = x + x
-
-factorial(n i32) i32 =
-  if n <= 0 then 1 else n * factorial(n - 1)
-
 triple_factorial(x i32) i32 =
   res as i32 = factorial(x);
   res := factorial(res);
@@ -136,6 +140,24 @@ Expressions can only refer to labels in tail position, and a label is
 in scope only within the expression that it is labelling.
 (It's a lot like a restricted `goto` that has to yield a value).
 
+Special case: the short-circuiting operators `&&` and `||` desugar to
+`if .. then .. else`s:
+
+```bash
+a && b -----> if a then b else a
+a || b -----> if a then a else b
+```
+
+Thus, when passed as second argument
+to these operators, labels can actually still be in tail position.
+For example, the following is allowed:
+
+```bash
+arrays_equal(n u64, xs *i32, ys *i32) bool =
+  i := 0;
+  rec: i >= n || xs[i] == ys[i] && (i := i + 1; rec)
+```
+
 ## Types
 
 ### Parametric polymorphism
@@ -154,6 +176,10 @@ Polymorphic functions can be explicitly instantiated with `@[]`:
 ```bash
 specific_fst(p {x i32, y f64}) i32 = fst@[i32, f64](p)
 ```
+
+Restrictions compared to other languages:
+- No polymorphic recursion
+- No higher rank / higher kinded polymorphism
 
 ### Row/column polymorphism
 
@@ -207,8 +233,8 @@ The algorithm does not infer a column type, as that would imply that the `case`
 expression could be non-exhaustive.
 
 However, if we add a final catch-all pattern, then the algorithm _will_ infer
-a column type, since it's possible for such a `case` expression to be
-polymorphic in additional variant options while remaining exhaustive:
+a column type---it's possible for a `case` expression with a catch-all pattern
+to be polymorphic in additional variant options while remaining exhaustive:
 
 ```bash
 f[A, B, C](x <tag1 A, tag2 B; C>) bool =
@@ -219,12 +245,72 @@ f[A, B, C](x <tag1 A, tag2 B; C>) bool =
   }
 ```
 
+### Traits
+
+Traits are restricted compared to in other languages:
+- Single parameter only
+- No sub-/super-classing
+- No polymorphic methods
+- No higher kinded traits
+
+They're mainly for operator overloading. Some examples:
+
+```bash
+# Equality (==)
+trait A eq {__eq__ (A, A) -> bool}
+# Inequality (<=)
+trait A ord {__leq__ (A, A) -> bool}
+# Truthiness
+trait A bool {__bool__ A -> bool}
+```
+
+`bool` allows for overloading of `if .. then .. else`
+(and, by extension, `&&` and `||`):
+
+```bash
+if p then a else b -----> if __bool__(p) then a else b
+```
+
+Instances can be declared with `impl`, and can depend on other instances:
+
+```bash
+# A dynamically resizable array
+type vec(A) = {len u64, cap u64, data *A}
+
+# A linked list
+type list(A) = *<nil {}, cons {hd A, tl list(A)}>
+
+# If A is comparable, vec(A) is too
+impl(A eq) vec(A) eq {
+  __eq__(v, w) =
+    v.len == w.len
+    && (
+      i = 0;
+      rec:
+        i >= v.len
+        || v[i] == w[i] && (i := i + 1; rec)
+    )
+}
+
+# Ditto for lists
+impl(A eq) list(A) eq {
+  __eq__(v, w) =
+    case *v {
+      nil _ -> case *w {nil _ -> true, _ -> false}
+      cons v -> case *w {
+        nil _ -> false,
+        cons w -> v.hd == w.hd && v.tl == w.tl
+      }
+    }
+}
+```
+
 ### Recursive types
 
 Unlike ML/Haskell, Stitch allows recursive type aliases (and, in general,
 supports equirecursive types rather than isorecursive ones). This
-complicates type equality---for example, the following 5 types are considered
-equivalent, because they all have the same 'infinite expansions':
+complicates type equality---for example, the following 5 list types are
+considered equivalent, because they all have the same 'infinite expansions':
 
 ```bash
 # Straightforward recursion
@@ -289,11 +375,24 @@ eval_bool_exp(e t2) bool = ...
 ...though, it will actually infer the following polymorphic signatures:
 
 ```bash
+eval_int_exp[R1, R2, R3, R4, R5, R6](e t1(R1, R2, R3, R4, R5, R6)) i32 = ...
+
+eval_bool_exp[R1, R2, R3, R4, R5, R6](e t2(R1, R2, R3, R4, R5, R6)) bool = ...
+```
+
+where the definitions of `t1` and `t2` are
+
+```bash
 type t1(R1, R2, R3, R4, R5, R6) = 
   *<lit i32,
     plus {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R1}, 
     mult {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R2}, 
-    ifte {p t2(R1, R2, R3, R4, R5, R6), a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R3}>
+    ifte {
+      p t2(R1, R2, R3, R4, R5, R6),
+      a t1(R1, R2, R3, R4, R5, R6),
+      b t1(R1, R2, R3, R4, R5, R6);
+      R3
+    }>
 
 type t2(R1, R2, R3, R4, R5, R6) =
   *<lit bool,
@@ -301,84 +400,6 @@ type t2(R1, R2, R3, R4, R5, R6) =
     not {a t2(R1, R2, R3, R4, R5, R6); R5},
     leq {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R6}>
 
-eval_int_exp[R1, R2, R3, R4, R5, R6](e t1(R1, R2, R3, R4, R5, R6)) i32 = ...
-
-eval_bool_exp[R1, R2, R3, R4, R5, R6](e t2(R1, R2, R3, R4, R5, R6)) bool = ...
-```
-
-### Traits
-
-Traits are restricted compared to in other languages:
-- No sub-/super-classing
-- No polymorphic methods
-- Single parameter only
-- No higher kinded traits
-
-They're mainly for operator overloading:
-
-```bash
-trait A eq {__eq__ (A, A) -> bool}
-
-trait A ord {
-  __lt__ (A, A) -> bool,
-  __gt__ (A, A) -> bool,
-  __leq__ (A, A) -> bool,
-  __geq__ (A, A) -> bool
-}
-
-trait A bool {__bool__ A -> bool}
-
-trait A log {
-  __and__ (A, A) -> A,
-  __or__ (A, A) -> A
-}
-```
-
-`bool` and `log` allow for overloading of:
-- `if .. then .. else`
-- Non-short-circuiting `&` and `|`
-- Short-circuiting `&&` and `||`
-
-```bash
-if p then a else b -----> if __bool__(p) then a else b
-a && b             -----> if a then a & b else a
-a || b             -----> if a then a else a | b
-```
-
-Instances can be declared with `impl`, and can depend on other instances:
-
-```bash
-type vec(A) = {len u64, cap u64, data *A}
-impl(A eq) vec(A) eq {
-  __eq__(v, w) =
-    v.len == w.len
-    && (
-      i = 0;
-      rec:
-        when {
-          i >= v.len -> true,
-          v[i] != w[i] -> false,
-          else -> i := i + 1; rec
-        }
-    )
-}
-```
-
-Constraints are automatically inferred:
-
-```bash
-and_fold(xs, e) =
-  case *xs {
-    nil _ -> e,
-    cons xs -> xs.hd && and_fold(xs.tl)
-  }
-```
-
-yields
-
-```bash
-type T(A, B, R) = *<nil A, cons {hd B, tl T; R}>
-and_fold[A, B bool log, R](xs T(A, B, R), e B) B = ...
 ```
 
 ## Notes for implementation
@@ -400,7 +421,7 @@ yields the constraints
 
 ```bash
 type T = *<nil ?A, cons {tl T; ?R1}>
-type R = *<nil {}, cons {hd int, tl R}>
+type R = *<nil {}, cons {hd int, tl R}> # This should have failed occurs check
 zeros_like(xs T) R = ...
 ```
 
@@ -436,7 +457,7 @@ eval_bool_exp(e) =
   }
 ```
 
-yields the constraints
+we get the constraints
 
 ```bash
 type S =
@@ -542,14 +563,14 @@ unify env (T \vec t1) (T \vec t2) = zipWithM_ (unify env) t1 t2
 -- do so; simultaneously unfold any back-pointers
 unify env (\mu u. s) (\mu v. t) = do
   union u v
-  unify (extend [u -> s, v -> t] env) (unify s t)
+  unify env[u->s,v->t] (unify s t)
 unify env u (\mu v. t) | env (\mu v. t) u = do
   union u v
-  unify (extend [v -> t] env) t (lookup u env)
+  unify env[v->t] t (env u)
   
 -- Even if we can't make any new assumptions / extend the environment,
 -- unfold any back-pointers
-unify env u t | env t u = unify env (lookup u env) t
+unify env u t | env t u = unify env (env u) t
 
 -- If the two types don't match even under all equality assumptions
 -- and after unfolding back-pointers, they can't be equal 
