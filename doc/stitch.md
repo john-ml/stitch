@@ -74,18 +74,6 @@ checked_div(a i32, b i32) <none {}, some i32> =
   if b == 0 then none@{} else some @ a/b
 ```
 
-`dyn` is used to create a heap-allocated value:
-
-```bash
-type list(A) = *<nil {}, cons {hd A, tl list(A)}>
-
-countdown(n i32) list(i32) =
-  if n < 0 then
-    dyn nil@{}
-  else
-    dyn cons @ {hd = n, tl = countdown(n - 1)}
-```
-
 ## Control flow
 
 ### Branching
@@ -400,6 +388,20 @@ type t2(R1, R2, R3, R4, R5, R6) =
     not {a t2(R1, R2, R3, R4, R5, R6); R5},
     leq {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R6}>
 
+```
+
+### Memory
+
+`dyn` is used to create a heap-allocated value:
+
+```bash
+type list(A) = *<nil {}, cons {hd A, tl list(A)}>
+
+countdown(n i32) list(i32) =
+  if n < 0 then
+    dyn nil@{}
+  else
+    dyn cons @ {hd = n, tl = countdown(n - 1)}
 ```
 
 ## Notes for implementation
