@@ -740,6 +740,8 @@ substituting `\vec x` and `\vec y` into `u` and `v` actually produces equal infi
 ```hs
 -- [[e]] k compiles an e with continuation k into C statements
 [[_]] : Expr -> (Expr -> Expr) -> C.Stmts
+
+-- Making labels
 [[ ..lbl: e ]] k =
   jmp_buf lbl;
   if (setjmp(lbl)) {
@@ -747,6 +749,9 @@ substituting `\vec x` and `\vec y` into `u` and `v` actually produces equal infi
   } else {
     [[k lbl]] id
   }
+
+-- Using labels
+[[ ..lbl ]] _ = longjmp(lbl);
 ```
 
 For example,
@@ -837,3 +842,10 @@ Potential complications:
       constructor just takes 2 arguments now instead of 1
 - Trait methods that take in labels are now technically polymorphic
     - :(
+- Labels and jumps nested inside each other
+    - Within a single function body, scoping of label names prevents 
+      referencing labels that don't yet exist
+    - `..l: expression involving free labels l1 and l2` is safe because
+      `l1` and `l2` must have larger lifetimes if you can talk about
+      them inside `l`
+
