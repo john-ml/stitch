@@ -505,40 +505,37 @@ So the above could be written
 divs(a, b, c, d, e) = safe_div(?safe_div(?safe_div(?safe_div(a, b), c), d), e)
 ```
 
-### Memory
+## Memory
 
 There are two types of pointers:
 
 ```bash
-type nullable(A) = *A
-type non_nullable(A) = &A
+type lax(A) = *A    # aka 'pointer'
+type strict(A) = &A # aka 'reference'
 ```
 
-Subtyping: `&A <: *A`.
+Both types of pointers are 'supposed to' hold the addresses of
+valid memory locations only (e.g. not NULL), and dereferencing a
+pointer that doesn't is undefined behavior. The difference is
+that, while `*A`s are just expected to be well-behaved, `&A`s must
+be provably so.
 
-Taking a reference to a local value with `&` always creates a
-non-nullable pointer. Since these pointers are bound
-to a stack frame, ensuring non-nullability is exactly the same
-as ensuring that no label escapes upwards. Thus, the same escape
-analysis can be used to keep non-nullable pointers safe.
+Taking a reference to a local value with `&` always creates an
+`&A`. Since these references are bound to a stack frame, the
+same escape analysis used to ensure that no label escapes
+upwards can be used to keep references safe.
 
-`new` is used to allocate heap memory.
-It always yields a nullable pointer:
+`new` and `del` can be used to allocate and deallocate heap memory:
 
 ```bash
-type list(A) = *<nil {}, cons {hd A, tl list(A)}>
+type list(A) = &<nil {}, cons {hd A, tl list(A)}>
 
 countdown(n i32) list(i32) =
   if n < 0 then
     new nil@{}
   else
     new cons @ {hd = n, tl = countdown(n - 1)}
-```
 
-`del` is used to deallocate heap memory. It always
-returns an empty struct:
-
-```bash
 del_list(del_elt (A) -> {}, l list(A)) =
   case *l {
     nil _ -> del l,
@@ -548,6 +545,25 @@ del_list(del_elt (A) -> {}, l list(A)) =
       del l
   }
 ```
+
+If they were functions, their types would be:
+
+```bash
+new [A] A -> &A
+del [A] &A -> {}
+```
+
+`new`'s signature is strange: if there were no way to
+heap-allocate, then all references would be bound to
+stack frames and it'd be impossible to write 
+a terminating function of type `[A] A -> &A`.
+
+That heap allocation is the only way to
+comfortably allow pointers to escape upwards is
+encoded by this type: the only way for a function
+to return 'escaping references' is by using `new`.
+
+### Defer
 
 `defer` can be used to clean up resources:
 let `C [| e |]` represent an expression that contains 
@@ -1111,6 +1127,45 @@ Potential complications:
       `l1` and `l2` must have larger lifetimes if you can talk about
       them inside `l`
 
+
+### Compiling `&`
+
+Should
+
+```bash
+bad(l &i32) &i32 = (tmp = l; l)
+```
+
+be rejected?
+
+`tmp`'s metavariable will unify with `l`'s, so it may look like
+`tmp` can escape.
+
+On the other hand,
+
+```bash
+ok(l ..i32) ..i32 = (tmp = l; l)
+```
+
+is accepted, since temporary bindings aren't considered to be local
+labels.
+
+Is the same applicable to references? (Only references created
+with the `&` operator are considered 'local'?)
+
+```bash
+ok1(l &i32) &i32 = (tmp = l; l)
+ok2(l &i32) &i32 = (tmp = &*l; l)
+bad(l &i32) &i32 = (tmp = &*l; tmp)
+```
+
+- In `ok1`, no 'local references' are created; `tmp` is a local variable
+  that happens to bind a non-local one, which is fine.
+- In `ok2`, reference `&*l` is local, but its metavariable never
+  unifies with anything and thus it can never escape.
+- In `bad`, `tmp`'s metavariable unifies with the return type and thus
+  could escape.
+
 ### Inference with pointer subtyping
 
 ?
@@ -1131,7 +1186,7 @@ e.g. in
 a = e4;
 x = (if p then y = (s; z = e3; e2); e1 else w);
 z = e5;
-r
+e6
 ```
 
 Suppose `e1 .. e5` are simple. Then:
