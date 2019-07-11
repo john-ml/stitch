@@ -558,7 +558,7 @@ del [A] &A -> {}
 
 `new`'s type encodes the fact that heap-allocation
 is the only way to comfortably allow pointers to escape
-upwards: it's not impossible to write a terminating
+upwards: it's impossible to write a terminating
 function of type `[A] A -> &A` without `new`.
 
 These types also illustrate how weak the guarantees around
@@ -714,6 +714,44 @@ sums(xs) =
         xs = xs.tl;
         _ = del_alt(tmp);
         ..rec
+    }
+```
+
+Things get a bit more complicated if the final expression
+contains both branching and label invocations.
+The deferred action has to be pushed down into each branch:
+
+```bash
+sums(p, xs) =
+  res = 0;
+  rec:
+    case *xs {
+      nil _ -> res,
+      cons xs ->
+        res := res + sum(countdown(xs.hd) defer del_alt);
+        xs = xs.tl;
+        if p then ..rec else 1
+    }
+```
+
+becomes
+
+```bash
+sums(p, xs) =
+  res = 0;
+  rec:
+    case *xs {
+      nil _ -> res,
+      cons xs ->
+        tmp = countdown(xs.hd);
+        res := res + sum(tmp);
+        xs = xs.tl;
+        if p then
+          _ = del_alt(tmp);
+          ..rec
+        else
+          _ = del_alt(tmp);
+          1
     }
 ```
 
