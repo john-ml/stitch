@@ -214,8 +214,8 @@ categorize[A, B, C, D](
   }
 ```
 
-Despite all this, labels aren't first class. The following use
-of labels is not allowed:
+Despite all this, labels are subject to some restrictions.
+The following use of labels is not allowed:
 
 ```bash
 bad(i i32) ..i32 = ..not_ok: i * i
@@ -237,7 +237,8 @@ f[A](ok ..A) ..A = choose(true, ok, ..not_ok: e)
 ```
 
 `ok`'s lifetime is larger than that of `f`'s stack
-frame, because `f` receives it as an argument. Since `choose`
+frame, because `f` receives it as an argument. Since
+the call to `choose`
 always returns `ok`, this program will never crash at runtime.
 Nonetheless, the escape analysis conservatively assumes
 that `choose` might return `not_ok` (whose lifetime is smaller
@@ -516,7 +517,7 @@ type non_nullable(A) = &A
 Subtyping: `&A <: *A`.
 
 Taking a reference to a local value with `&` always creates a
-non-nullable pointer. Since non-nullable references are always bound
+non-nullable pointer. Since these pointers are bound
 to a stack frame, ensuring non-nullability is exactly the same
 as ensuring that no label escapes upwards. Thus, the same escape
 analysis can be used to keep non-nullable pointers safe.
@@ -548,22 +549,147 @@ del_list(del_elt (A) -> {}, l list(A)) =
   }
 ```
 
-`defer` can be used to push statements onto a 
-stack to be executed immediately before a function
-body returns:
+`defer` can be used to clean up resources:
+let `C [| e |]` represent an expression that contains 
+the subexpression `e` within a surrounding context `C`.
+Then, roughly, `C [| e defer g |]` becomes
 
 ```bash
+tmp = e;
+res = C [| tmp |];
+_ = g(tmp);
+res
+```
+
+and `C [| e defer x -> e1 |]` becomes
+
+```bash
+x = e;
+res = C [| x |];
+_ = e1;
+res
+```
+
+For example,
+
+
+```bash
+del_noop(_) = {}
+
+sum_countdowns(i, j, k) =
+  sum(countdown(i) defer xs -> del_list(del_noop, xs))
+  + sum(countdown(j) defer xs -> del_list(del_noop, xs))
+  + sum(countdown(k) defer xs -> del_list(del_noop, xs))
+
 sum(xs) =
   case *xs {
     nil _ -> 0,
     cons xs -> xs.hd + sum(xs.tl)
   }
+```
 
+becomes
+
+```bash
 sum_countdowns(i, j, k) =
-  xs = countdown(i) defer _ = del_list(i);
-  ys = countdown(j) defer _ = del_list(j);
-  zs = countdown(k) defer _ = del_list(k);
+  xs0 = countdown(i);
+  xs1 = countdown(j);
+  xs2 = countdown(k);
+  res = (
+    res = (
+      res = sum(xs0) + sum(xs1) + sum(xs2)
+      _ = del_list(del_noop, xs0);
+      res
+    );
+    _ = del_list(del_noop, xs1);
+    res
+  );
+  _ = del_list(del_noop, xs2);
+  res
+```
+
+The same example, written another way:
+
+```bash
+del_alt(xs) = del_list(del_noop, xs)
+sum_countdowns(i, j, k) =
+  xs = countdown(i) defer del_alt;
+  ys = countdown(j) defer del_alt;
+  zs = countdown(k) defer del_alt;
   sum(xs) + sum(ys) + sum(zs)
+```
+
+becomes
+
+```bash
+sum_countdowns(i, j, k) =
+  tmp0 = countdown(i);
+  res = (
+    xs = tmp0;
+    tmp1 = countdown(j);
+    res = (
+      ys = tmp1;
+      tmp2 = countdown(k);
+      res = (
+        zs = tmp2;
+        sum(xs) + sum(ys) + sum(zs)
+      );
+      _ = del_alt(tmp2);
+      res
+    );
+    _ = del_alt(tmp1);
+    res
+  );
+  _ = del_alt(tmp0);
+  res
+```
+
+Label invocation will also produce a slightly different translation:
+let `C [| e |]` represent an a sequence of statements that contains 
+the subexpression `e` within a surrounding context `C`.
+`C [| e defer x -> e1 |]; ..l` becomes
+
+```
+x = e;
+C [| x |];
+_ = e1;
+..l
+```
+
+Since the label will always be in tail position,
+it's safe to perform the deferred action `e1`
+before invoking the label.
+
+For example,
+
+```bash
+sums(xs) =
+  res = 0;
+  rec:
+    case *xs {
+      nil _ -> res,
+      cons xs ->
+        res := res + sum(countdown(xs.hd) defer del_alt);
+        xs = xs.tl;
+        ..rec
+    }
+```
+
+becomes
+
+```bash
+sums(xs) =
+  res = 0;
+  rec:
+    case *xs {
+      nil _ -> res,
+      cons xs ->
+        tmp = countdown(xs.hd);
+        res := res + sum(tmp);
+        xs = xs.tl;
+        _ = del_alt(tmp);
+        ..rec
+    }
 ```
 
 ## Notes for implementation
@@ -984,8 +1110,56 @@ Potential complications:
     - `..l: expression involving free labels l1 and l2` is safe because
       `l1` and `l2` must have larger lifetimes if you can talk about
       them inside `l`
-- Deferring labels or jumps to labels
 
 ### Inference with pointer subtyping
 
 ?
+
+### Choosing `C` when desugaring `defer`
+
+`e defer _` will try to choose the smallest context `C` that contains
+a statement `x = e'` or `x := e'` such that:
+- `e` is a subexpression of `e'`
+- `e'` is a simple expression (no `;`, `if`, `when`, `case`, `lbl:`, etc).
+
+If this is not possible, `defer` will choose the largest simple
+expression `e'` containing `e`.
+
+e.g. in
+
+```
+a = e4;
+x = (if p then y = (s; z = e3; e2); e1 else w);
+z = e5;
+r
+```
+
+Suppose `e1 .. e5` are simple. Then:
+- Anything in `e1`, `e2` or `e6` -> `C` is the empty context `[[ ]]`
+- Anything in `e3` -> `C` is `z = [[_]]; e2`
+- Anything in `e4` -> `C` is `a = [[_]]; x = ...; z = e5; r`
+- Anything in `e5` -> `C` is `z = [[_]]; r`
+
+```bash
+cond_sum(p, i, j) =
+  if p then
+    sum(countdown(i) defer del_alt)
+  else
+    sum(countdown(j) defer del_alt)
+```
+
+becomes
+
+```bash
+cond_sum(p, i, j) =
+  if p then
+    tmp = countdown(i);
+    res = sum(tmp);
+    _ = del_alt(tmp);
+    res
+  else
+    tmp = countdown(j);
+    res = sum(tmp);
+    _ = del_alt(tmp);
+    res
+```
