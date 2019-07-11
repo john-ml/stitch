@@ -5,7 +5,7 @@ an emphasis on performance.
 
 - (+1) Full type inference, even for recursive data types
 - (+1) Generics and a simple trait system
-- (+1) C's unboxed data and manual control over pointers
+- (+1) C's unboxed data / control over indirection
 - (+1) C's low runtime overhead (full specialization of traits & generics)
 - (+1) C's compiler optimizations (we transpile to it)
 - (-g<sub>64</sub>) C's memory safety
@@ -442,7 +442,7 @@ impl(A eq) list(A) eq {
 There is one deeply magical trait, `chain`:
 
 ```bash
-trait M chain { __chain__ (M(A), A -> M(B)) -> M(B) }
+trait M chain { __chain__ (M(A), A -> ?R) -> ?R }
 
 type option(A) = <none {}, some A>
 
@@ -507,6 +507,8 @@ divs(a, b, c, d, e) = safe_div(?safe_div(?safe_div(?safe_div(a, b), c), d), e)
 
 ## Memory
 
+### Pointer types
+
 There are two types of pointers:
 
 ```bash
@@ -517,13 +519,14 @@ type strict(A) = &A # aka 'reference'
 Both types of pointers are 'supposed to' hold the addresses of
 valid memory locations only (e.g. not NULL), and dereferencing a
 pointer that doesn't is undefined behavior. The difference is
-that, while `*A`s are just expected to be well-behaved, `&A`s must
-be provably so.
+that, while `*A`s are just expected to behave themselves,
+the compiler attempts (barely) to prove that `&A`s are safe.
+This is done using an escape analysis very similar to the one for
+labels, and guarantees that:
+- `&A`s are never null
+- All `&A`s corresponding to stack locals hold valid addresses
 
-Taking a reference to a local value with `&` always creates an
-`&A`. Since these references are bound to a stack frame, the
-same escape analysis used to ensure that no label escapes
-upwards can be used to keep references safe.
+### Allocation / deallocation
 
 `new` and `del` can be used to allocate and deallocate heap memory:
 
@@ -534,7 +537,7 @@ countdown(n i32) list(i32) =
   if n < 0 then
     new nil@{}
   else
-    new cons @ {hd = n, tl = countdown(n - 1)}
+    new cons@{hd = n, tl = countdown(n - 1)}
 
 del_list(del_elt (A) -> {}, l list(A)) =
   case *l {
@@ -553,20 +556,27 @@ new [A] A -> &A
 del [A] &A -> {}
 ```
 
-`new`'s signature is strange: if there were no way to
-heap-allocate, then all references would be bound to
-stack frames and it'd be impossible to write 
-a terminating function of type `[A] A -> &A`.
+`new`'s type encodes the fact that heap-allocation
+is the only way to comfortably allow pointers to escape
+upwards: it's not impossible to write a terminating
+function of type `[A] A -> &A` without `new`.
 
-That heap allocation is the only way to
-comfortably allow pointers to escape upwards is
-encoded by this type: the only way for a function
-to return 'escaping references' is by using `new`.
+These types also illustrate how weak the guarantees around
+`&A`s are:
+- If `&A` corresponds to heap-allocated memory, there's no
+  guarantee that it holds a valid address
+- If `&A` corresponds to stack-allocated memory, nothing
+  stops you from trying to delete it
 
 ### Defer
 
-`defer` can be used to clean up resources:
-let `C [| e |]` represent an expression that contains 
+Though the typechecker won't help you delete responsibly,
+`defer` tries to mitigate this by allowing you to write
+a constructor and its corresponding destructor in
+the same place; it will then automatically schedule the destructor
+to be run when the constructed value falls out of scope.
+
+Let `C [| e |]` represent an expression that contains 
 the subexpression `e` within a surrounding context `C`.
 Then, roughly, `C [| e defer g |]` becomes
 
@@ -587,7 +597,6 @@ res
 ```
 
 For example,
-
 
 ```bash
 del_noop(_) = {}
@@ -661,7 +670,7 @@ sum_countdowns(i, j, k) =
 ```
 
 Label invocation will also produce a slightly different translation:
-let `C [| e |]` represent an a sequence of statements that contains 
+let `C [| e |]` represent a sequence of statements that contains 
 the subexpression `e` within a surrounding context `C`.
 `C [| e defer x -> e1 |]; ..l` becomes
 
@@ -1108,6 +1117,22 @@ bad(p bool, q bool, l *..(?L, bool)) i32 =
 
 Now the program is rejected, since the metavariable for `uhoh`
 shows up in `l`'s type.
+
+Complication: we can't just check arguments and return type, because
+of local scoping.
+
+```bash
+bad() i32 =
+  dangling = (x = e; &x);
+  _ = use(dangling); # dangling can be used...
+  0 # ...yet never escapes the entire function body
+```
+
+Fix: use the rules in "Choosing C when desugaring `defer`" to determine
+scope. At scope end for each reference, check if the `&` metavariable
+shows up in the type of:
+- The final expression
+- The types of any variables in scope after scope end
 
 Potential complications:
 - User-defined type aliases
