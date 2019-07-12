@@ -88,7 +88,7 @@ unwrap(x <none unit, some i32>, default i32) i32 =
     some i -> i
   }
 
-sum(xs *list(i32)) i32 =
+sum(xs list(i32)) i32 =
   # Not full pattern matching: only allowed to branch on sum type tag and
   # destructure a tuple
   case *x {
@@ -168,7 +168,7 @@ f(x i32, default i32) i32 =
   w = action2(y);
   if !condition3(x, y, z, w) then ..fail else
   res = action3(w);
-  cleanup(y);
+  _ = cleanup(y);
   res
 ```
 
@@ -201,7 +201,7 @@ find_helper(x, xs, success ..bool) =
 to be written as a normal loop:
 
 ```bash
-find(x i32, xs *list(i32)) bool =
+find(x i32, xs list(i32)) bool =
   rec:
     case *xs {
       nil _ -> false,
@@ -332,15 +332,15 @@ considered equivalent, because they all have the same 'infinite expansions':
 
 ```bash
 # Straightforward recursion
-type list1(A) = <nil {}, cons {hd A, tl *list1(A)}>
+type list1(A) = *<nil {}, cons {hd A, tl list1(A)}>
 # Straightforward recursion, but a different type alias
-type list2(A) = <nil {}, cons {hd A, tl *list2(A)}>
+type list2(A) = *<nil {}, cons {hd A, tl list2(A)}>
 # Recursion through a helper type
-type opt(A) = <nil {}, cons A>
-type list3(A) = opt({hd A, tl *list3(A)})
+type opt(A) = *<nil {}, cons A>
+type list3(A) = opt({hd A, tl list3(A)})
 # Mutual bundle resulting in the same infinite expansion
-type list4(A) = <nil {}, cons {hd A, tl *list4(A)}>
-type list5(A) = <nil {}, cons {hd A, tl *list3(A)}>
+type list4(A) = *<nil {}, cons {hd A, tl list4(A)}>
+type list5(A) = *<nil {}, cons {hd A, tl list3(A)}>
 ```
 
 In exchange, we gain the ability to write programs over recursive types
@@ -429,31 +429,50 @@ impl(A eq) list(A) eq {
 
 ## Memory
 
-### Pointer types
+Pointers are 'supposed to' hold the addresses of
+valid memory locations only (e.g. not NULL), and dereferencing a
+pointer that doesn't is undefined behavior.
+To partially enforce this, the compiler proves the
+following, using an escape analysis very similar to the one for labels:
+- Pointers are never null
+- Pointers to stack-allocated values always hold valid addresses
 
-There are two types of pointers:
+For example, `bad1` .. `bad4` are not allowed:
 
 ```bash
-type lax(A) = *A    # aka 'pointer'
-type strict(A) = &A # aka 'reference'
-```
+bad1() *i32 =
+  x = 0;
+  &x # x escapes
 
-Both types of pointers are 'supposed to' hold the addresses of
-valid memory locations only (e.g. not NULL), and dereferencing a
-pointer that doesn't is undefined behavior. The difference is
-that, while `*A`s are just expected to behave themselves,
-the compiler attempts (barely) to prove that `&A`s are safe.
-This is done using an escape analysis very similar to the one for
-labels, and guarantees that:
-- `&A`s are never null
-- All `&A`s corresponding to stack locals hold valid addresses
+bad2() i32 =
+  x = (
+    y = 0;
+    &y
+  ); # y escapes the local scope...
+  _ = use(x); # ...so use receives an invalidated pointer to y
+  0
+
+bad3(p **i32) i32 =
+  x = 0;
+  *p := &x; # x escapes into p
+  0
+
+f(p **i32, q *i32) i32 =
+  *p := q;
+  0
+
+bad4(p **i32) i32 =
+  x = 0;
+  f(p, &x); # x escapes into p via f
+  0
+```
 
 ### Allocation / deallocation
 
 `new` and `del` can be used to allocate and deallocate heap memory:
 
 ```bash
-type list(A) = &<nil {}, cons {hd A, tl list(A)}>
+type list(A) = *<nil {}, cons {hd A, tl list(A)}>
 
 countdown(n i32) list(i32) =
   if n < 0 then
@@ -474,20 +493,21 @@ del_list(del_elt (A) -> {}, l list(A)) =
 If they were functions, their types would be:
 
 ```bash
-new [A] A -> &A
-del [A] &A -> {}
+new [A] A -> *A
+del [A] *A -> {}
 ```
 
 `new`'s type encodes the fact that heap-allocation
 is the only way to comfortably allow pointers to escape
 upwards: it's impossible to write a terminating
-function of type `[A] A -> &A` without `new`.
+function of type `[A] A -> *A` without `new`.
 
-These types also illustrate how weak the guarantees around
-`&A`s are:
-- If `&A` corresponds to heap-allocated memory, there's no
-  guarantee that it holds a valid address
-- If `&A` corresponds to stack-allocated memory, nothing
+These types also illustrate how weak the safety checks
+for pointers are:
+- If `*A` corresponds to heap-allocated memory, there's no
+  guarantee that it holds a valid address and nothing forces
+  you to delete it when no longer useful
+- If `*A` corresponds to stack-allocated memory, nothing
   stops you from trying to delete it
 
 ### Defer
@@ -987,15 +1007,20 @@ substituting `\vec x` and `\vec y` into `u` and `v` actually produces equal infi
 -- Making labels
 [[ ..lbl: e ]] k =
   jmp_buf lbl;
+  volatile _x = x; -- for each x currently in scope and mutated in e or k
   if (setjmp(lbl)) {
-    [[e]] id
+    __x = _x; -- for each _x
+    [[e]] id -- with __x replacing each x
   } else {
-    [[k lbl]] id
+    __x = _x; -- for each _x
+    [[k lbl]] id -- with __x replacing each x
   }
 
 -- Using labels
 [[ ..lbl ]] _ = longjmp(lbl);
 ```
+
+[More info on `volatile`s](https://stackoverflow.com/questions/7996825/why-volatile-works-for-setjmp-longjmp).
 
 For example,
 
@@ -1110,7 +1135,7 @@ bad() i32 =
 ```
 
 Fix: use the rules in "Choosing C when desugaring `defer`" to determine
-scope. At scope end for each reference, check if the `&` metavariable
+scope. At scope end for each pointer, check if the `*` metavariable
 shows up in the type of:
 - The final expression
 - The types of any variables in scope after scope end
@@ -1134,12 +1159,12 @@ Potential complications:
       them inside `l`
 
 
-### Compiling `&`
+### Compiling `*`
 
 Should
 
 ```bash
-bad(l &i32) &i32 = (tmp = l; l)
+bad(l *i32) *i32 = (tmp = l; l)
 ```
 
 be rejected?
@@ -1156,18 +1181,18 @@ ok(l ..i32) ..i32 = (tmp = l; l)
 is accepted, since temporary bindings aren't considered to be local
 labels.
 
-Is the same applicable to references? (Only references created
+Is the same applicable to pointers? (Only pointers created
 with the `&` operator are considered 'local'?)
 
 ```bash
-ok1(l &i32) &i32 = (tmp = l; l)
-ok2(l &i32) &i32 = (tmp = &*l; l)
-bad(l &i32) &i32 = (tmp = &*l; tmp)
+ok1(l *i32) *i32 = (tmp = l; l)
+ok2(l *i32) *i32 = (tmp = &*l; l)
+bad(l *i32) *i32 = (tmp = &*l; tmp)
 ```
 
-- In `ok1`, no 'local references' are created; `tmp` is a local variable
+- In `ok1`, no 'local pointers' are created; `tmp` is a local variable
   that happens to bind a non-local one, which is fine.
-- In `ok2`, reference `&*l` is local, but its metavariable never
+- In `ok2`, pointer `&*l` is local, but its metavariable never
   unifies with anything and thus it can never escape.
 - In `bad`, `tmp`'s metavariable unifies with the return type and thus
   could escape.
