@@ -691,8 +691,9 @@ sums(p, xs) =
           _ = del_alt(tmp);
           ..rec
         else
+          res0 = 1;
           _ = del_alt(tmp);
-          1
+          res0
     }
 ```
 
