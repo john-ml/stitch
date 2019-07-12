@@ -115,12 +115,12 @@ categorize(i) =
 don't require a closure.)
 
 In place of looping constructs, expressions can be labelled
-with `:` and can refer to other labels in scope with `..`:
+with `:` and `..`:
 
 ```bash
 mut_factorial(n i32) i32 =
   res = 1;
-  rec: # The if-expression below is labelled `rec`
+  ..rec: # The if-expression below is labelled `rec`
     if n == 1 then 
       res
     else
@@ -147,7 +147,7 @@ For example, the following is allowed:
 ```bash
 arrays_equal(n u64, xs *i32, ys *i32) bool =
   i := 0;
-  rec: i >= n || xs[i] == ys[i] && (i := i + 1; ..rec)
+  ..rec: i >= n || xs[i] == ys[i] && (i := i + 1; ..rec)
 ```
 
 Labelled expressions can also be stored in local variables
@@ -156,12 +156,12 @@ style error handling could be implemented as:
 
 ```bash
 f(x i32, default i32) i32 =
-  y = acquire_resource(x);
-  fail = ..lbl: (
+  fail = lbl: ( # No `..` => computation is suspended
     _ = print("Something went wrong!");
     _ = cleanup(y);
     default
   );
+  y = acquire_resource(x);
   if !condition1(x, y) then ..fail else
   z = action1();
   if !condition2(x, y, z) then ..fail else
@@ -180,8 +180,8 @@ back up the call stack:
 
 ```bash
 find(x i32, xs list(i32)) bool =
-  # `..` delays the evaluation of the expression labelled `ret`
-  find_helper(x, xs, ..ret: true)
+  # No `..` => computation is suspended
+  find_helper(x, xs, ret: true)
 
 # `success` is a label representing the suspended computation of a bool
 find_helper(x, xs, success ..bool) =
@@ -202,10 +202,10 @@ to be written as a normal loop:
 
 ```bash
 find(x i32, xs list(i32)) bool =
-  rec:
+  ..rec:
     case *xs {
       nil _ -> false,
-      cons (h, t) -> x == h || (xs := t; rec)
+      cons (h, t) -> x == h || (xs := t; ..rec)
     }
 ```
 )
@@ -243,7 +243,7 @@ Despite all this, labels are subject to some restrictions.
 The following use of labels is not allowed:
 
 ```bash
-bad(i i32) ..i32 = ..not_ok: i * i
+bad(i i32) ..i32 = not_ok: i * i
 ```
 
 The label `not_ok` 'escapes upwards'---after `bad` returns,
@@ -258,7 +258,7 @@ This means rejecting some valid programs, like the following:
 choose[A](p bool, l1 ..A, l2 ..A) ..A =
   if p then l1 else l2
 
-f[A](ok ..A) ..A = choose(true, ok, ..not_ok: e)
+f[A](ok ..A) ..A = choose(true, ok, not_ok: e)
 ```
 
 `ok`'s lifetime is larger than that of `f`'s stack
@@ -631,7 +631,7 @@ For example,
 ```bash
 sums(xs) =
   res = 0;
-  rec:
+  ..rec:
     case *xs {
       nil _ -> res,
       cons xs ->
@@ -646,7 +646,7 @@ becomes
 ```bash
 sums(xs) =
   res = 0;
-  rec:
+  ..rec:
     case *xs {
       nil _ -> res,
       cons xs ->
@@ -665,7 +665,7 @@ The deferred action has to be pushed down into each branch:
 ```bash
 sums(p, xs) =
   res = 0;
-  rec:
+  ..rec:
     case *xs {
       nil _ -> res,
       cons xs ->
@@ -680,7 +680,7 @@ becomes
 ```bash
 sums(p, xs) =
   res = 0;
-  rec:
+  ..rec:
     case *xs {
       nil _ -> res,
       cons xs ->
@@ -702,7 +702,7 @@ For example, the `goto fail`-style code from earlier can be rewritten as:
 
 ```bash
 f(x i32, default i32) i32 =
-  fail = ..lbl: (
+  fail = lbl: (
     _ = print("Something went wrong!");
     default
   );
@@ -1006,7 +1006,7 @@ substituting `\vec x` and `\vec y` into `u` and `v` actually produces equal infi
 [[_]] : Expr -> (Expr -> Expr) -> C.Stmts
 
 -- Making labels
-[[ ..lbl: e ]] k =
+[[ lbl: e ]] k =
   jmp_buf lbl;
   volatile _x = x; -- for each x currently in scope and mutated in e or k
   if (setjmp(lbl)) {
@@ -1026,7 +1026,7 @@ substituting `\vec x` and `\vec y` into `u` and `v` actually produces equal infi
 For example,
 
 ```hs
-f(x, y) = g(..l1: x + 1, ..l2: y + 1, ..l3: x*y + 1)
+f(x, y) = g(l1: x + 1, l2: y + 1, l3: x*y + 1)
 ```
 
 becomes
@@ -1071,7 +1071,7 @@ id_lbl[A](l: ..A) ..A = l
 check_something(_, _) bool = ...
 
 f(x, l) =
-  _ = id_lbl(..l1: e);
+  _ = id_lbl(l1: e);
   if check_something(x, l1) then
     l
   else
@@ -1086,7 +1086,7 @@ id_lbl[A](l: ..(?L1, A)) ..(?L1, A) = l
 check_something(_, _) bool = ...
 
 f(x, l ..(?L1, A)) ..(?L1, A) =
-  _ = id_lbl(..l1 as ..(?L1, A): e);
+  _ = id_lbl(l1 as ..(?L1, A): e);
   if check_something(x, l1) then
     l
   else
@@ -1101,7 +1101,7 @@ arguments:
 
 ```bash
 bad(p bool, q bool, l *..bool) i32 =
-  *l := ..uhoh: p && q;
+  *l := uhoh: p && q;
   0
 ```
 
@@ -1118,7 +1118,7 @@ This is what `bad` looks like right before generalization:
 
 ```bash
 bad(p bool, q bool, l *..(?L, bool)) i32 =
-  *l := ..uhoh as ..(?L, bool): p && q;
+  *l := uhoh as ..(?L, bool): p && q;
   0
 ```
 
