@@ -54,24 +54,25 @@ triple_factorial(x i32) i32 =
 ```bash
 type unit = {}
 type integer = i32
-type string = *i8 # pointer type
-type person = {age i32, height f32} # record type
-type int_opt = <none unit, some int> # sum type / variant
+type string = *i8 # pointer
+type point = (f64, f64) # tuple
+type person = {age i32, height f32} # record
+type int_opt = <none unit, some int> # sum / variant
 ```
 
 Type aliases can be recursive and can take arguments:
 
 ```bash
-type comparator(A) = (A, A) -> bool # function pointer type
+type comparator(A) = (A, A) -> bool # function pointer
 type either(A, B) = <left A, right B>
-type list(A) = <nil {}, cons {hd A, tl *list(A)}>
+type list(A) = *<nil (), cons (A, list(A))>
 ```
 
 `@` is used to create values of sum types:
 
 ```bash
-checked_div(a i32, b i32) <none {}, some i32> =
-  if b == 0 then none@{} else some @ a/b
+checked_div(a i32, b i32) <none (), some i32> =
+  if b == 0 then none@() else some @ a/b
 ```
 
 ## Control flow
@@ -88,9 +89,11 @@ unwrap(x <none unit, some i32>, default i32) i32 =
   }
 
 sum(xs *list(i32)) i32 =
+  # Not full pattern matching: only allowed to branch on sum type tag and
+  # destructure a tuple
   case *x {
     nil _ -> 0,
-    some x -> x.hd + sum(x.tl)
+    some (hd, tl) -> hd + sum(tl)
   }
 ```
 
@@ -147,6 +150,28 @@ arrays_equal(n u64, xs *i32, ys *i32) bool =
   rec: i >= n || xs[i] == ys[i] && (i := i + 1; ..rec)
 ```
 
+Labelled expressions can also be stored in local variables
+representing suspended computations. For example, `goto fail`
+style error handling could be implemented as:
+
+```bash
+f(x i32, default i32) i32 =
+  y = acquire_resource(x);
+  fail = ..lbl: (
+    _ = print("Something went wrong!");
+    _ = cleanup(y);
+    default
+  );
+  if !condition1(x, y) then ..fail else
+  z = action1();
+  if !condition2(x, y, z) then ..fail else
+  w = action2(y);
+  if !condition3(x, y, z, w) then ..fail else
+  res = action3(w);
+  cleanup(y);
+  res
+```
+
 Labels can be passed as parameters to functions.
 For example, the following
 definition of `find` will return immediately once an item
@@ -154,7 +179,7 @@ is found rather than bubbling the value `true` all the way
 back up the call stack:
 
 ```bash
-find(x i32, xs *list(i32)) bool =
+find(x i32, xs list(i32)) bool =
   # `..` delays the evaluation of the expression labelled `ret`
   find_helper(x, xs, ..ret: true)
 
@@ -162,13 +187,13 @@ find(x i32, xs *list(i32)) bool =
 find_helper(x, xs, success ..bool) =
   case *xs {
     nil _ -> false,
-    cons xs ->
-      if x == xs.ht then
+    cons (h, t) ->
+      if x == h then
         # Return to `ret` in the definition of find
         # As before, a label can only be evaluated in tail position
         ..success 
       else
-        find_helper(x, xs, success)
+        find_helper(x, t, success)
   }
 ```
 
@@ -180,7 +205,7 @@ find(x i32, xs *list(i32)) bool =
   rec:
     case *xs {
       nil _ -> false,
-      cons xs -> x == xs.ht || (xs := xs.tl; rec)
+      cons (h, t) -> x == h || (xs := t; rec)
     }
 ```
 )
@@ -326,21 +351,21 @@ evaluates simple expressions over boolean and integer values:
 eval_int_exp(e) =
   case *e {
     lit i -> i,
-    plus e -> eval_int_exp(e.a) + eval_int_exp(e.b),
-    mult e -> eval_int_exp(e.a) * eval_int_exp(e.b),
-    ifte e ->
-      if eval_bool_exp(e.p) then
-        eval_int_exp(e.a)
+    plus (a, b) -> eval_int_exp(a) + eval_int_exp(b),
+    mult (a, b) -> eval_int_exp(a) * eval_int_exp(b),
+    ifte (p, a, b) ->
+      if eval_bool_exp(p) then
+        eval_int_exp(a)
       else
-        eval_int_exp(e.b)
+        eval_int_exp(b)
   }
 
 eval_bool_exp(e) =
   case *e {
     lit b -> b,
-    and e -> eval_bool_exp(e.a) && eval_int_exp(e.b),
-    not e -> !eval_bool_exp(e.a),
-    leq e -> eval_int_exp(e.a) <= eval_int_exp(e.b)
+    and (a, b) -> eval_bool_exp(a) && eval_int_exp(b),
+    not a -> !eval_bool_exp(a),
+    leq (a, b) -> eval_int_exp(a) <= eval_int_exp(b)
   }
 ```
 
@@ -348,50 +373,13 @@ Inference will automatically produce the types of the ASTs being traversed
 by these two functions:
 
 ```bash
-type t1 = 
-  *<lit i32,
-    plus {a t1, b t1}, 
-    mult {a t1, b t1}, 
-    ifte {p t2, a t1, b t1}>
+type t1 = *<lit i32, plus (t1, t1), mult (t1, t1), ifte (t2, t1, t1)>
 
-type t2 =
-  *<lit bool,
-    and {a t2, b t2},
-    not {a t2},
-    leq {a t1, b t1}>
+type t2 = *<lit bool, and (t2, t2), not t2, leq (t1, t1)>
 
 eval_int_exp(e t1) i32 = ...
 
 eval_bool_exp(e t2) bool = ...
-```
-
-...though, it will actually infer the following polymorphic signatures:
-
-```bash
-eval_int_exp[R1, R2, R3, R4, R5, R6](e t1(R1, R2, R3, R4, R5, R6)) i32 = ...
-
-eval_bool_exp[R1, R2, R3, R4, R5, R6](e t2(R1, R2, R3, R4, R5, R6)) bool = ...
-```
-
-where the definitions of `t1` and `t2` are
-
-```bash
-type t1(R1, R2, R3, R4, R5, R6) = 
-  *<lit i32,
-    plus {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R1}, 
-    mult {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R2}, 
-    ifte {
-      p t2(R1, R2, R3, R4, R5, R6),
-      a t1(R1, R2, R3, R4, R5, R6),
-      b t1(R1, R2, R3, R4, R5, R6);
-      R3
-    }>
-
-type t2(R1, R2, R3, R4, R5, R6) =
-  *<lit bool,
-    and {a t2(R1, R2, R3, R4, R5, R6), b t2(R1, R2, R3, R4, R5, R6); R4},
-    not {a t2(R1, R2, R3, R4, R5, R6); R5},
-    leq {a t1(R1, R2, R3, R4, R5, R6), b t1(R1, R2, R3, R4, R5, R6); R6}>
 ```
 
 ### Traits
@@ -428,81 +416,15 @@ type list(A) = *<nil {}, cons {hd A, tl list(A)}>
 
 # If A is comparable, list(A) is too
 impl(A eq) list(A) eq {
-  __eq__(v, w) =
-    case *v {
-      nil _ -> case *w {nil _ -> true, _ -> false},
-      cons v -> case *w {
+  __eq__(xs, ys) =
+    case *xs {
+      nil _ -> case *ys {nil _ -> true, _ -> false},
+      cons (x, xs) -> case *ys {
         nil _ -> false,
-        cons w -> v.hd == w.hd && v.tl == w.tl
+        cons (y, ys) -> x == y && xs == ys
       }
     }
 }
-```
-
-There is one deeply magical trait, `chain`:
-
-```bash
-trait M chain { __chain__ (M(A), A -> ?R) -> ?R }
-
-type option(A) = <none {}, some A>
-
-impl option chain {
-  x <- m; e =
-    case m of {
-      none _ -> none@{},
-      some x -> e
-    }
-}
-```
-
-- Constrains a type alias, not a type
-- Method signature isn't actually possible
-- `x` in `x <- m; e` is substituted for `x` in `some x`
-- Functions aren't allowed to be polymorphic over `M chain`
-
-This isn't really a trait, but more like a type-directed macro.
-
-The above implementation for `option` allows for less tedious
-error handling with sum types. Instead of writing
-
-```bash
-safe_div(a i32, b i32) option(i32) =
-  if b == 0 then none@{} else some @ a/b
-
-divs(a, b, c, d, e) =
-  case safe_div(a, b) {
-    none _ -> none@{},
-    some ab ->
-      case safe_div(ab, c) {
-        none _ -> none@{},
-        some abc ->
-          case safe_div(abc, d) {
-            none _ -> none@{},
-            some abcd -> safe_div(abcd, e)
-          }
-      }
-  }
-```
-
-one can write
-
-```bash
-divs(a, b, c, d, e) =
-  ab <- safe_div(a, b);
-  abc <- safe_div(ab, c);
-  abcd <- safe_div(abc, d);
-  safe_div(abcd, e)
-```
-
-Additionally:
-```bash
-f(?a, ?b) -------> x <- a; y <- b; f(x, y)   (x, y fresh)
-```
-
-So the above could be written
-
-```bash
-divs(a, b, c, d, e) = safe_div(?safe_div(?safe_div(?safe_div(a, b), c), d), e)
 ```
 
 ## Memory
@@ -681,9 +603,8 @@ _ = e1;
 ..l
 ```
 
-Since the label will always be in tail position,
-it's safe to perform the deferred action `e1`
-before invoking the label.
+Since the label must be in tail position,
+the deferred action `e1` has to happen before invoking the label.
 
 For example,
 
@@ -754,6 +675,28 @@ sums(p, xs) =
           1
     }
 ```
+
+This allows `defer` to work nicely with `goto fail`-style error handling.
+For example, the `goto fail`-style code from earlier can be rewritten as:
+
+```bash
+f(x i32, default i32) i32 =
+  fail = ..lbl: (
+    _ = print("Something went wrong!");
+    default
+  );
+  y = acquire_resource(x) defer cleanup;
+  if !condition1(x, y) then ..fail else
+  z = action1();
+  if !condition2(x, y, z) then ..fail else
+  w = action2(y);
+  if !condition3(x, y, z, w) then ..fail else
+  action3(w)
+```
+
+The call to `cleanup` will be properly pushed into each `..fail` leaf
+and `action3(w)` will become `res = action3(w); cleanup(y); res`,
+as in the code without `defer`.
 
 ## Notes for implementation
 
