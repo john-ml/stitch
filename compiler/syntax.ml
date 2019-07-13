@@ -1,45 +1,4 @@
-exception Todo
-
-module Meta = struct
-  type t = int
-  let compare = (-)
-  let fresh =
-    let i = ref 0 in
-    fun () -> i := !i + 1; !i
-  let show x = "?" ^ string_of_int x
-end
-
-module Span = struct
-  type loc = int * int
-  type t = (loc * loc) option
-  let show_loc (r, c) = string_of_int r ^ ":" ^ string_of_int c
-  (* Compute the smallest region that contains both of the given regions *)
-  let join a b =
-    match a, b with
-    | a, None | None, a -> a
-    | Some ((lr1, lc1), (lr2, lc2)), Some ((rr1, rc1), (rr2, rc2)) ->
-        Some ((min lr1 rr1, min lc1 rc1), (max lr2 rr2, max lc2 rc2))
-  let show = function
-    | Some (rc1, rc2) -> show_loc rc1 ^ "-" ^ show_loc rc2
-    | None -> "<no location>"
-end
-
-module Node = struct
-  type 'a t = {a: 'a; span: Span.t}
-  let at ?sp:(span=None) a = {a; span}
-  let no_loc () = None
-end
-
-module NameM = struct
-  include Map.Make(Name)
-  let of_list kvs =
-    List.fold_left
-      (fun m (k, v) -> add k v m)
-      empty kvs
-end
-module MetaM = Map.Make(Meta)
-module NameS = Set.Make(Name)
-module MetaS = Set.Make(Meta)
+open Misc
 
 (* Abstract syntax of the core language *)
 
@@ -74,11 +33,11 @@ type alias = Name.t list * t
 (* Polymorphic type *)
 type poly = binds * t
 
-let binds (ts : (Name.t * Name.t list) list) : binds =
+let binds (ts: (Name.t * Name.t list) list): binds =
   NameM.of_list (List.map (fun (x, ts) -> (x, NameS.of_list ts)) ts)
 
 (* Initial environment for type-level primitives *)
-let env : alias NameM.t =
+let env: alias NameM.t =
   let open NameM in
   let open Node in
   let open Name in
@@ -229,7 +188,7 @@ let aand (a: t) (b: t): t = ite Node.(Span.join a.span b.span) a b a
 let oor (a: t) (b: t): t = ite Node.(Span.join a.span b.span) a a b
 
 (* when becomes nested if .. then .. else *)
-let cond (sp: Span.t) (arms: (t * t) list) (last: t) : t =
+let cond (sp: Span.t) (arms: (t * t) list) (last: t): t =
   { (List.fold_right
       (fun (p, e) r -> ite Node.(Span.join p.span r.span) p e r)
       arms last)
@@ -262,7 +221,7 @@ let defer (e: t) (f: Name.t Node.t): t =
         [at ~sp:f.span (Var x)]))))
 
 (* Initial environment for term-level primitives *)
-let env : Ty.poly NameM.t =
+let env: Ty.poly NameM.t =
   let open NameM in
   let open Node in
   let open Ty in
@@ -286,6 +245,97 @@ let env : Ty.poly NameM.t =
     ; id "__bool__", (binds [id "A", [id "bool"]], at (Fun ([a], tbool)))
     ]
 
+let show_pat: pat -> string = let open Node in function
+  | None -> "_"
+  | Some (x, binds) ->
+      Name.show x.a
+      ^ "("
+      ^ String.concat ", "
+          (List.map (fun (x, t) -> Name.show x.a ^ " as " ^ Ty.show t) binds)
+      ^ ")"
+
+let rec doc (e: t): Doc.t =
+  let open Doc in
+  let open Node in
+  match e.a with
+  | Int i -> Lit (string_of_int i)
+  | Float x -> Lit (string_of_float x)
+  | Str s -> Lit (String.escaped s)
+  | Var x -> Lit (Name.show x)
+  | Ref t -> Lit "&" +++ doc t
+  | Ind (e, i) -> doc e +++ Lit "[" +++ doc i +++ Lit "]"
+  | Ann (e, t) -> doc e +++ Lit (" as " ^ Ty.show t)
+  | Defer (e, x, e1) -> doc e +++ Lit (" " ^ Name.show x ^ " -> ") +++ doc e1
+  | Inj (x, es) ->
+      let ds = List.map doc es in
+      if List.for_all single_line ds then
+        Name.show x.a >>> par (horzs ds)
+      else
+        Name.show x.a >>> vpar (Ind (2, verts (sep_by "," ds)))
+  | Case (e, pes) ->
+      let de = doc e in
+      let ds = sep_by ", " (List.map (fun (p, e) -> show_pat p >>> doc e) pes) in
+      (match single_line de, List.for_all single_line ds with
+       | true, true -> "case " >>> (par de +++ brac (horzs ds))
+       | true, false ->
+           "case " ^ render (par de) >>> vbrac (Ind (2, verts ds))
+       | false, true ->
+           vpar (Ind (2, vpar (Ind (2, de)))) <<< render (brac (horzs ds))
+       | false, false ->
+           Lit "case (" --- Ind (2, de) --- Lit ") {"
+           --- Ind (2, verts ds) --- Lit "}")
+  | Proj (e, x) ->
+      let d = doc e in
+      if single_line d then
+        par d <<< "." ^ Name.show x.a
+      else
+        vpar (Ind (2, d)) <<< "." ^ Name.show x.a
+  | Rec xes ->
+      let open List in
+      let ds =
+        sep_by ", " (
+          map
+            (fun (x, e) -> Name.show x ^ " = " >>> doc e)
+            (NameM.bindings xes))
+      in
+      if for_all (fun d -> single_line d) ds
+      then brac (horzs ds)
+      else vbrac (verts ds)
+  | App (f, xs) ->
+      let df = doc f in
+      let ds = sep_by ", " (List.map doc xs) in
+      (match single_line df, List.for_all single_line ds with
+       | true, true -> par df +++ horzs ds
+       | true, false ->
+           render (par df) >>> vpar (Ind (2, verts ds))
+       | false, true ->
+           vpar (Ind (2, vpar (Ind (2, df))))
+           <<< render (horzs ds)
+       | false, false ->
+           vpar (Ind (2, df) --- Lit ")(" --- Ind (2, verts ds)))
+  | Sus (l, e) ->
+      let d = doc e in
+      if single_line d then
+        Name.show l.a ^ ": " >>> d
+      else
+        Name.show l.a ^ ": " >>> vpar (Ind (2, d))
+  | Res e ->
+      let d = doc e in
+      if single_line d then
+        ".." >>> d
+      else
+        ".." >>> vpar (Ind (2, d))
+  | Let (x, t, r, e) ->
+      (Lit (Name.show x.a ^ " as " ^ Ty.show t ^ " = ") +++ doc r <<< ";") 
+      --- doc e
+  | Set (l, r, e) ->
+      let dl = doc l in
+      if single_line dl then
+        ((dl +++ Lit " := " +++ doc r) <<< ";") --- doc e
+      else
+        (Lit "(" --- Ind (2, dl) --- Prepend (")", Lit " := " +++ doc r) <<< ";")
+        --- doc e
+
 end (* Expr *)
 
 type tdecl = (* (A, ..) -> t *) NameS.t * Ty.t
@@ -307,3 +357,29 @@ type prgm =
   ; tdecls: tdecl NameM.t
   ; impls: int (* TODO *)
   }
+
+let _ =
+  let open Node in
+  let open Name in
+  let open Ty in
+  let open Meta in
+  let open Expr in
+  print_endline "----- Without nesting:";
+  print_endline (Doc.render (doc (
+    at (App (
+      at (Var (id "f")),
+      [at (Proj (at (Inj (at (id "Some"), [])), at (id "field")))])))));
+  print_endline "----- With nesting:";
+  print_endline (Doc.render (doc (
+    at (App (
+      at (Var (id "f")),
+      [at (Proj (
+        at (Inj (
+          at (id "Some"),
+          [at (Set (
+            at (Var (id "y")),
+            at (Ann (
+              at (Ref (at (Ind (at (Var (id "x")), at (Int 3))))),
+              at (Ptr (Open (fresh ()), at (Lit (id "i32")))))),
+            at (Int 0)))])),
+        at (id "field")))])))))
