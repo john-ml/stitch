@@ -1,18 +1,5 @@
 exception Todo
 
-module Name = struct
-  include String
-  (* Make a name from a string *)
-  let id s = s
-  (* A mangled copy that will never conflict with user-defined names *)
-  let internal s = "0"^s
-  (* A fresh internal name *)
-  let fresh =
-    let i = ref 0 in
-    fun () -> i := !i + 1; string_of_int !i
-  let show s = s
-end
-
 module Meta = struct
   type t = int
   let compare = (-)
@@ -25,6 +12,7 @@ end
 module Span = struct
   type loc = int * int
   type t = (loc * loc) option
+  let show_loc (r, c) = string_of_int r ^ ":" ^ string_of_int c
   (* Compute the smallest region that contains both of the given regions *)
   let join a b =
     match a, b with
@@ -32,9 +20,7 @@ module Span = struct
     | Some ((lr1, lc1), (lr2, lc2)), Some ((rr1, rc1), (rr2, rc2)) ->
         Some ((min lr1 rr1, min lc1 rc1), (max lr2 rr2, max lc2 rc2))
   let show = function
-    | Some (rc1, rc2) ->
-        let show_rc (r, c) = string_of_int r ^ ":" ^ string_of_int c in
-        show_rc rc1 ^ "-" ^ show_rc rc2
+    | Some (rc1, rc2) -> show_loc rc1 ^ "-" ^ show_loc rc2
     | None -> "<no location>"
 end
 
@@ -129,7 +115,7 @@ let show =
     | Rec (xs, r) -> join ["{"; fields go xs; "; "; show_row r; "}"]
     | Sum (xs, r) ->
         (match NameM.bindings xs, r with
-         | [x, ts], None when String.equal x (Name.internal "tuple") ->
+         | [x, ts], None when Name.(equal x (internal "tuple")) ->
              join ["("; tuple ts; ")"]
          | _ -> join ["<"; fields tuple xs ; "; "; show_row r; ">"])
     | Fun (ts, r) -> join ["("; tuple ts; ") -> "; go r]
@@ -184,7 +170,6 @@ let uop_name: uop -> Name.t = let open Name in function
 let uop (op: uop Node.t) (e: t): t =
   let open Node in
   let open Span in
-  let open Name in
   at ~sp:(join op.span e.span) (
     App (
       at ~sp:op.span (Var (uop_name op.a)),
@@ -207,7 +192,6 @@ let bop_name: bop -> Name.t = let open Name in function
 let bop (a: t) (op: bop Node.t) (b: t): t =
   let open Node in
   let open Span in
-  let open Name in
   at ~sp:(join a.span b.span) (
     App (
       at ~sp:op.span (Var (bop_name op.a)),
@@ -216,7 +200,6 @@ let bop (a: t) (op: bop Node.t) (b: t): t =
 (* *p becomes p[0] *)
 let deref (sp: Span.t) (p: t): t =
   let open Node in
-  let open Span in
   at ~sp (Ind (p, at ~sp (Int 0)))
 
 (* Boolean literal becomes nullary injection *)
@@ -234,7 +217,6 @@ let bfalse: Span.t -> t = mk_blit "false"
 let ite (sp: Span.t) (p: t) (a: t) (b: t): t =
   let open Node in
   let open Name in
-  let open Span in
   at ~sp (
     Case (
       at ~sp:p.span (App (at ~sp:p.span (Var (id "__bool__")), [p])),
@@ -247,14 +229,15 @@ let aand (a: t) (b: t): t = ite Node.(Span.join a.span b.span) a b a
 let oor (a: t) (b: t): t = ite Node.(Span.join a.span b.span) a a b
 
 (* when becomes nested if .. then .. else *)
-let cond (sp: Span.t) (arms: (t * t) list) (last: t) =
-  List.fold_right
-    (fun (p, e) r -> ite Node.(Span.join p.span r.span) p e r)
-    arms last
+let cond (sp: Span.t) (arms: (t * t) list) (last: t) : t =
+  { (List.fold_right
+      (fun (p, e) r -> ite Node.(Span.join p.span r.span) p e r)
+      arms last)
+    with span = sp
+  }
 
 (* Tuples become injections into closed sums *)
 let tup (sp: Span.t) (es: t list) =
-  let open Span in
   let open Node in
   let open Ty in
   at ~sp (
