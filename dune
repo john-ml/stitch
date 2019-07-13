@@ -1,0 +1,3 @@
+(executable
+  (name syntax))
+(include_subdirs unqualified)

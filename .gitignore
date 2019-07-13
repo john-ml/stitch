@@ -4,3 +4,6 @@ parser.tab.c
 parser.tab.h
 stitch
 *.swp
+.merlin
+_build
+dune-project
