@@ -113,6 +113,26 @@ and expr
   | (* x as t = e; e       *) Let of Name.t Node.t * Ty.t * t * t
   | (* e := e; e           *) Set of t * t * t
 
+(* Constructors with no location info *)
+
+let mk_int i = Node.at (Int i)
+let mk_float x = Node.at (Float x)
+let mk_str s = Node.at (Str s)
+let mk_var x = Node.at (Var (Name.id x))
+let mk_ref e = Node.at (Ref e)
+let mk_ind e i = Node.at (Ind (e, i))
+let mk_ann e t = Node.at (Ann (e, t))
+let mk_defer e x e1 = Node.at (Defer (e, x, e1))
+let mk_inj x es = Node.at (Inj (Node.at (Name.id x), es))
+let mk_case x arms = Node.at (Case (x, arms))
+let mk_proj x field = Node.at (Proj (x, Node.at (Name.id field)))
+let mk_rec xes = Node.at (Rec (NameM.of_list xes))
+let mk_app f xs = Node.at (App (f, xs))
+let mk_sus l e = Node.at (Sus (Node.at (Name.id l), e))
+let mk_res e = Node.at (Res e)
+let mk_let x t e1 e = Node.at (Let (Node.at (Name.id x), t, e1, e))
+let mk_set l r e = Node.at (Set (l, r, e))
+
 type uop
   = (* -       *) Neg
   | (* !       *) Not 
@@ -366,20 +386,14 @@ let _ =
   let open Expr in
   print_endline "----- Without nesting:";
   print_endline (Doc.render (doc (
-    at (App (
-      at (Var (id "f")),
-      [at (Proj (at (Inj (at (id "Some"), [])), at (id "field")))])))));
+    mk_app (mk_var "f") [mk_proj (mk_inj "Some" []) "field"])));
   print_endline "----- With nesting:";
   print_endline (Doc.render (doc (
-    at (App (
-      at (Var (id "f")),
-      [at (Proj (
-        at (Inj (
-          at (id "Some"),
-          [at (Set (
-            at (Var (id "y")),
-            at (Ann (
-              at (Ref (at (Ind (at (Var (id "x")), at (Int 3))))),
-              at (Ptr (Open (fresh ()), at (Lit (id "i32")))))),
-            at (Int 0)))])),
-        at (id "field")))])))))
+    mk_app (mk_var "f")
+      [mk_proj
+        (mk_inj "Some"
+          [mk_set (mk_var "y")
+            (mk_ann
+              (mk_ref (mk_ind (mk_var "x") (mk_int 3)))
+              (at (Ptr (Open (fresh ()), at (Lit (id "i32"))))))
+            (mk_int 0)]) "field"])))
