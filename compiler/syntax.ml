@@ -113,7 +113,7 @@ and expr
   | (* x as t = e; e       *) Let of Name.t Node.t * Ty.t * t * t
   | (* e := e; e           *) Set of t * t * t
 
-(* Constructors with no location info *)
+(* Convenience constructors with no location info *)
 
 let mk_int i = Node.at (Int i)
 let mk_float x = Node.at (Float x)
@@ -292,11 +292,59 @@ let rec doc (e: t): Doc.t =
         Name.show x.a >>> par (horzs ds)
       else
         Name.show x.a >>> vpar (Ind (2, verts (sep_by "," ds)))
+  | Case (
+      {a = App ({a = Var fbool; _}, [p]); _},
+      [ Some (ptrue, []), a
+      ; Some (pfalse, []), b
+      ])
+    when let open Name in
+         equal fbool (id "__bool__")
+         && equal ptrue.a (internal "true")
+         && equal pfalse.a (internal "false")
+    ->
+       let dp = doc p in
+       let da = doc a in
+       let db = doc b in
+       (* TODO find a better way to do this *)
+       (match single_line dp, single_line da, single_line db with
+        | true, true, true ->
+            ("if " >>> dp) +++ (" then " >>> da) +++ (" else " >>> db)
+        | true, true, false ->
+            "if " ^ render dp ^ " then " ^ render da ^ " else " >>> vpar (Ind (2, db))
+        | true, false, true ->
+            ("if " ^ render dp ^ " then ") >>> vpar (Ind (2, da)) <<< " else " ^ render db
+        | true, false, false ->
+            "if " ^ render dp >>> (Lit " then ("
+            --- Ind (2, da)
+            --- Lit ") else ("
+            --- Ind (2, db)
+            --- Lit ")")
+        | false, true, true ->
+            "if " >>> vpar (Ind (2, dp)) <<< " then " ^ render da ^ " else " ^ render db
+        | false, true, false ->
+            (("if " >>> vpar (Ind (2, dp))) <<< " then " ^ render da ^ " else (")
+            --- Ind (2, db) --- Lit ")"
+        | false, false, true ->
+            Lit "if ("
+            --- Ind (2, dp)
+            --- Lit ") then ("
+            --- Ind (2, da)
+            --- Lit ") else " <<< render db
+        | false, false, false ->
+            Lit "if ("
+            --- Ind (2, dp)
+            --- Lit ") then ("
+            --- Ind (2, da)
+            --- Lit ") else ("
+            --- Ind (2, db)
+            --- Lit ")")
   | Case (e, pes) ->
       let de = doc e in
-      let ds = sep_by ", " (List.map (fun (p, e) -> show_pat p >>> doc e) pes) in
+      let ds =
+        sep_by ", " (List.map (fun (p, e) -> show_pat p ^ " -> " >>> doc e) pes)
+      in
       (match single_line de, List.for_all single_line ds with
-       | true, true -> "case " >>> (par de +++ brac (horzs ds))
+       | true, true -> ("case " >>> par de <<< " ") +++ brac (horzs ds)
        | true, false ->
            "case " ^ render (par de) >>> vbrac (Ind (2, verts ds))
        | false, true ->
@@ -325,12 +373,12 @@ let rec doc (e: t): Doc.t =
       let df = doc f in
       let ds = sep_by ", " (List.map doc xs) in
       (match single_line df, List.for_all single_line ds with
-       | true, true -> par df +++ horzs ds
+       | true, true -> par df +++ par (horzs ds)
        | true, false ->
            render (par df) >>> vpar (Ind (2, verts ds))
        | false, true ->
            vpar (Ind (2, vpar (Ind (2, df))))
-           <<< render (horzs ds)
+           <<< render (par (horzs ds))
        | false, false ->
            vpar (Ind (2, df) --- Lit ")(" --- Ind (2, verts ds)))
   | Sus (l, e) ->
@@ -388,12 +436,31 @@ let _ =
   print_endline (Doc.render (doc (
     mk_app (mk_var "f") [mk_proj (mk_inj "Some" []) "field"])));
   print_endline "----- With nesting:";
+  let nested =
+    mk_set (mk_var "y")
+      (mk_ann
+        (mk_ref (mk_ind (mk_var "x") (mk_int 3)))
+        (at (Ptr (Open (fresh ()), at (Lit (id "i32"))))))
+      (mk_int 0)
+  in
   print_endline (Doc.render (doc (
-    mk_app (mk_var "f")
-      [mk_proj
-        (mk_inj "Some"
-          [mk_set (mk_var "y")
-            (mk_ann
-              (mk_ref (mk_ind (mk_var "x") (mk_int 3)))
-              (at (Ptr (Open (fresh ()), at (Lit (id "i32"))))))
-            (mk_int 0)]) "field"])))
+    mk_app (mk_var "f") [mk_proj (mk_inj "Some" [nested]) "field"])));
+  if false then begin
+    print_endline (Doc.render (doc (
+      ite None (mk_var "x") (mk_int 0) (mk_int 1))));
+    print_endline (Doc.render (doc (
+      ite None (mk_var "x") (mk_int 0) nested)));
+    print_endline (Doc.render (doc (
+      ite None (mk_var "x") nested (mk_int 1))));
+    print_endline (Doc.render (doc (
+      ite None (mk_var "x") nested nested)));
+    print_endline (Doc.render (doc (
+      ite None nested (mk_int 0) (mk_int 1))));
+    print_endline (Doc.render (doc (
+      ite None nested (mk_int 0) nested)));
+    print_endline (Doc.render (doc (
+      ite None nested nested (mk_int 1))));
+    print_endline (Doc.render (doc (
+      ite None nested nested nested)))
+  end else
+    ()
