@@ -31,3 +31,8 @@ end
 module MetaM = Map.Make(Meta)
 module NameS = Set.Make(Name)
 module MetaS = Set.Make(Meta)
+
+module IntS = Set.Make(struct
+  type t = int
+  let compare = (-)
+end)
