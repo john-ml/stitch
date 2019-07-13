@@ -150,8 +150,12 @@ type pat = (Name.t Loc.t * binds) option
 type t = expr Loc.t
 
 and expr
-  = (* x, y, etc.          *) Var of Name.t
+  = (* integer             *) Int of int
+  | (* float               *) Float of float
+  | (* string              *) Str of string
+  | (* x, y, etc.          *) Var of Name.t
   | (* &e                  *) Ref of t
+  | (* e[e]                *) Ind of t * t
   | (* e as t              *) Ann of t * Ty.t
   | (* e defer x -> e      *) Defer of t * Name.t * t
   | (* x@(e, ..)           *) Inj of Name.t Loc.t * t list
@@ -167,7 +171,6 @@ and expr
 type uop
   = (* -       *) Neg
   | (* !       *) Not 
-  | (* *       *) Deref
   | (* new del *) New | Del
 
 (* Unary operators become unary function calls *)
@@ -175,7 +178,6 @@ type uop
 let uop_name: uop -> Name.t = let open Name in function
   | Neg -> id "__neg__"
   | Not -> id "__not__"
-  | Deref -> id "__deref__"
   | New -> id "__new__"
   | Del -> id "__del__"
 
@@ -211,14 +213,11 @@ let bop (a: t) (op: bop Loc.t) (b: t): t =
       at ~sp:op.span (Var (bop_name op.a)),
       [a; b]))
 
-(* Array index becomes function call *)
-let ind (e: t) (i: t): t =
+(* *p becomes p[0] *)
+let deref (sp: Span.t) (p: t): t =
   let open Loc in
   let open Span in
-  at ~sp:(join e.span i.span) (
-    App (
-      at ~sp:i.span (Var (Name.id "__index__")),
-      [i]))
+  at ~sp (Ind (p, at ~sp (Int 0)))
 
 (* Boolean literal becomes nullary injection *)
 let mk_blit name sp =
@@ -286,7 +285,6 @@ let env : Ty.poly NameM.t =
   let open Ty in
   let open Name in
   let a = at (Var (id "A")) in
-  let u64 = at (Lit (id "u64")) in
   let ptr_a = at (Ptr (Closed (id "R"), a)) in
   let tbool = at (Var (id "bool")) in
   let un trait = (binds [id "A", [id trait]], at (Fun ([a], a))) in
@@ -294,7 +292,6 @@ let env : Ty.poly NameM.t =
   of_list
     [ uop_name Neg, un "num"
     ; uop_name Not, un "log"
-    ; uop_name Deref, (binds [id "R", []; id "A", []], at (Fun ([ptr_a], a)))
     ; uop_name New, (binds [id "R", []; id "A", []], at (Fun ([a], ptr_a)))
     ; uop_name Del, (binds [id "R", []; id "A", []], at (Fun ([ptr_a], a)))
     ; bop_name Add, bin "num"
@@ -303,7 +300,6 @@ let env : Ty.poly NameM.t =
     ; bop_name Div, bin "num"
     ; bop_name And, bin "log"
     ; bop_name Or, bin "log"
-    ; id "__index__", (binds [id "A", []], at (Fun ([ptr_a; u64], a)))
     ; id "__bool__", (binds [id "A", [id "bool"]], at (Fun ([a], tbool)))
     ]
 
