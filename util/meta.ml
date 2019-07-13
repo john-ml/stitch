@@ -3,6 +3,8 @@ type t = int
 
 let compare : t -> t -> int = (-)
 
+let equal : t -> t -> bool = (=)
+
 (* Generate fresh metavariable *)
 let fresh : unit -> t =
   let i = ref 0 in
