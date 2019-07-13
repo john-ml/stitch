@@ -23,8 +23,8 @@ module Meta = struct
 end
 
 module Span = struct
-  type rc = int * int
-  type t = (rc * rc) option
+  type loc = int * int
+  type t = (loc * loc) option
   (* Compute the smallest region that contains both of the given regions *)
   let join a b =
     match a, b with
@@ -38,7 +38,7 @@ module Span = struct
     | None -> "<no location>"
 end
 
-module Loc = struct
+module Node = struct
   type 'a t = {a: 'a; span: Span.t}
   let at ?sp:(span=None) a = {a; span}
   let no_loc () = None
@@ -63,7 +63,7 @@ type hole = Open of Meta.t | Closed of Name.t
 
 type row = hole option
 
-type t = ty Loc.t
+type t = ty Node.t
 
 and ty
   = (* i32, i64, etc.     *) Lit of Name.t
@@ -77,7 +77,7 @@ and ty
   | (* ?A                 *) Meta of Meta.t
 
 (* Tuple types become closed single-constructor sums *)
-let tup ts = Loc.at (Sum (NameM.singleton (Name.internal "tuple") ts, None))
+let tup ts = Node.at (Sum (NameM.singleton (Name.internal "tuple") ts, None))
 
 (* A series of type-level bindings: A trait .., .. *)
 type binds = NameS.t NameM.t
@@ -94,7 +94,7 @@ let binds (ts : (Name.t * Name.t list) list) : binds =
 (* Initial environment for type-level primitives *)
 let env : alias NameM.t =
   let open NameM in
-  let open Loc in
+  let open Node in
   let open Name in
   of_list
     [ (* type bool = <__true (), __false ()> *)
@@ -120,7 +120,7 @@ let show =
   in
   let rec go ty =
     let tuple ts = concat ", " (List.map go ts) in
-    match ty.Loc.a with
+    match ty.Node.a with
     | Lit t -> Name.show t
     | Var x -> Name.show x
     | Ptr (r, t) -> join ["*("; show_hole r; ", "; go t; ")"]
@@ -142,12 +142,12 @@ end (* Ty *)
 module Expr = struct
 
 (* Term-level bindings: x as t, .. *)
-type binds = (Name.t Loc.t * Ty.t) list
+type binds = (Name.t Node.t * Ty.t) list
 
 (* Pattern in a case expression: ctr (x as t, ..) | _ *)
-type pat = (Name.t Loc.t * binds) option
+type pat = (Name.t Node.t * binds) option
 
-type t = expr Loc.t
+type t = expr Node.t
 
 and expr
   = (* integer             *) Int of int
@@ -158,14 +158,14 @@ and expr
   | (* e[e]                *) Ind of t * t
   | (* e as t              *) Ann of t * Ty.t
   | (* e defer x -> e      *) Defer of t * Name.t * t
-  | (* x@(e, ..)           *) Inj of Name.t Loc.t * t list
+  | (* x@(e, ..)           *) Inj of Name.t Node.t * t list
   | (* case e {p -> e, ..} *) Case of t * (pat * t) list
-  | (* e.x                 *) Proj of t * Name.t Loc.t
+  | (* e.x                 *) Proj of t * Name.t Node.t
   | (* {x = e, ..}         *) Rec of t NameM.t
   | (* e(e, ..)            *) App of t * t list
-  | (* l: e                *) Sus of Name.t Loc.t * t
+  | (* l: e                *) Sus of Name.t Node.t * t
   | (* ..e                 *) Res of t
-  | (* x as t = e; e       *) Let of Name.t Loc.t * Ty.t * t * t
+  | (* x as t = e; e       *) Let of Name.t Node.t * Ty.t * t * t
   | (* e := e; e           *) Set of t * t * t
 
 type uop
@@ -181,8 +181,8 @@ let uop_name: uop -> Name.t = let open Name in function
   | New -> id "__new__"
   | Del -> id "__del__"
 
-let uop (op: uop Loc.t) (e: t): t =
-  let open Loc in
+let uop (op: uop Node.t) (e: t): t =
+  let open Node in
   let open Span in
   let open Name in
   at ~sp:(join op.span e.span) (
@@ -204,8 +204,8 @@ let bop_name: bop -> Name.t = let open Name in function
   | And -> id "__and__"
   | Or -> id "__or__"
 
-let bop (a: t) (op: bop Loc.t) (b: t): t =
-  let open Loc in
+let bop (a: t) (op: bop Node.t) (b: t): t =
+  let open Node in
   let open Span in
   let open Name in
   at ~sp:(join a.span b.span) (
@@ -215,13 +215,13 @@ let bop (a: t) (op: bop Loc.t) (b: t): t =
 
 (* *p becomes p[0] *)
 let deref (sp: Span.t) (p: t): t =
-  let open Loc in
+  let open Node in
   let open Span in
   at ~sp (Ind (p, at ~sp (Int 0)))
 
 (* Boolean literal becomes nullary injection *)
 let mk_blit name sp =
-  let open Loc in
+  let open Node in
   let open Name in
   at ~sp (
     Ann (
@@ -232,7 +232,7 @@ let bfalse: Span.t -> t = mk_blit "false"
 
 (* if .. then .. else becomes case expression *)
 let ite (sp: Span.t) (p: t) (a: t) (b: t): t =
-  let open Loc in
+  let open Node in
   let open Name in
   let open Span in
   at ~sp (
@@ -243,19 +243,19 @@ let ite (sp: Span.t) (p: t) (a: t) (b: t): t =
       ]))
 
 (* && and || become if .. then .. else *)
-let aand (a: t) (b: t): t = ite Loc.(Span.join a.span b.span) a b a
-let oor (a: t) (b: t): t = ite Loc.(Span.join a.span b.span) a a b
+let aand (a: t) (b: t): t = ite Node.(Span.join a.span b.span) a b a
+let oor (a: t) (b: t): t = ite Node.(Span.join a.span b.span) a a b
 
 (* when becomes nested if .. then .. else *)
 let cond (sp: Span.t) (arms: (t * t) list) (last: t) =
   List.fold_right
-    (fun (p, e) r -> ite Loc.(Span.join p.span r.span) p e r)
+    (fun (p, e) r -> ite Node.(Span.join p.span r.span) p e r)
     arms last
 
 (* Tuples become injections into closed sums *)
 let tup (sp: Span.t) (es: t list) =
   let open Span in
-  let open Loc in
+  let open Node in
   let open Ty in
   at ~sp (
     Ann (
@@ -264,12 +264,12 @@ let tup (sp: Span.t) (es: t list) =
 
 (* Tuple-destructuring let becomes case expression *)
 let lets (sp: Span.t) (xs: binds) (e1: t) (e: t): t =
-  let open Loc in
+  let open Node in
   at ~sp (Case (e1, [Some (at (Name.internal "tuple"), xs), e]))
 
 (* e defer f becomes e defer x -> f(x) *)
-let defer (e: t) (f: Name.t Loc.t): t =
-  let open Loc in
+let defer (e: t) (f: Name.t Node.t): t =
+  let open Node in
   let open Span in
   let x = Name.fresh () in
   at ~sp:(join e.span f.span) (
@@ -281,7 +281,7 @@ let defer (e: t) (f: Name.t Loc.t): t =
 (* Initial environment for term-level primitives *)
 let env : Ty.poly NameM.t =
   let open NameM in
-  let open Loc in
+  let open Node in
   let open Ty in
   let open Name in
   let a = at (Var (id "A")) in
