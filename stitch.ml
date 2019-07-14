@@ -55,4 +55,8 @@ let _ =
   let uf = union z w uf in
   dump uf;
   let uf = union w y uf in
-  dump uf;
+  dump uf
+
+let _ =
+  let open Typing in
+  infer

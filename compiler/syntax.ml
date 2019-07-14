@@ -102,7 +102,7 @@ and expr
   | (* &e                  *) Ref of t
   | (* e[e]                *) Ind of t * t
   | (* e as t              *) Ann of t * Ty.t
-  | (* e defer x -> e      *) Defer of t * Name.t * t
+  | (* e defer x as t -> e *) Defer of t * Name.t * Ty.t * t
   | (* x@(e, ..)           *) Inj of Name.t Node.t * t list
   | (* case e {p -> e, ..} *) Case of t * (pat * t) list
   | (* e.x                 *) Proj of t * Name.t Node.t
@@ -122,7 +122,7 @@ let mk_var x = Node.at (Var (Name.id x))
 let mk_ref e = Node.at (Ref e)
 let mk_ind e i = Node.at (Ind (e, i))
 let mk_ann e t = Node.at (Ann (e, t))
-let mk_defer e x e1 = Node.at (Defer (e, x, e1))
+let mk_defer e x t e1 = Node.at (Defer (e, x, t, e1))
 let mk_inj x es = Node.at (Inj (Node.at (Name.id x), es))
 let mk_case x arms = Node.at (Case (x, arms))
 let mk_proj x field = Node.at (Proj (x, Node.at (Name.id field)))
@@ -234,8 +234,9 @@ let defer (e: t) (f: Name.t Node.t): t =
   let open Node in
   let open Span in
   let x = Name.fresh () in
+  let m = Meta.fresh () in
   at ~sp:(join e.span f.span) (
-    Defer (e, x, at ~sp:f.span (
+    Defer (e, x, at ~sp:f.span (Ty.Meta m), at ~sp:f.span (
       App (
         at ~sp:f.span (Var f.a),
         [at ~sp:f.span (Var x)]))))
@@ -285,7 +286,8 @@ let rec doc (e: t): Doc.t =
   | Ref t -> Lit "&" +++ doc t
   | Ind (e, i) -> doc e +++ Lit "[" +++ doc i +++ Lit "]"
   | Ann (e, t) -> doc e +++ Lit (" as " ^ Ty.show t)
-  | Defer (e, x, e1) -> doc e +++ Lit (" " ^ Name.show x ^ " -> ") +++ doc e1
+  | Defer (e, x, t, e1) ->
+      doc e +++ Lit (" " ^ Name.show x ^ " as " ^ Ty.show t ^ " -> ") +++ doc e1
   | Inj (x, es) ->
       let ds = List.map doc es in
       if List.for_all single_line ds then
@@ -401,27 +403,30 @@ let rec doc (e: t): Doc.t =
       if single_line dl then
         ((dl +++ Lit " := " +++ doc r) <<< ";") --- doc e
       else
-        (Lit "(" --- Ind (2, dl) --- Prepend (")", Lit " := " +++ doc r) <<< ";")
-        --- doc e
+        Lit "(" --- Ind (2, dl) --- (") := " >>> doc r <<< ";") --- doc e
 
 end (* Expr *)
 
-type tdecl = (* (A, ..) -> t *) NameS.t * Ty.t
+(* \ (A, ..) -> t *)
+type tdecl = NameS.t * Ty.t
 
-type fdecl
-  = (* [A trait .., ..](x as t, ..) t = e *)
-    Ty.binds * Expr.binds * Ty.t * Expr.t
+(* [A trait .., ..](x as t, ..) t = e *)
+type fdecl = Ty.binds * Expr.binds * Ty.t * Expr.t
 
-(* TODO *)
-type impl
-  = (* impl(A trait .., ..) t trait { ... } *)
-    { prereqs: Ty.binds
-    ; ty: Name.t
-    ; trait: Name.t
-    }
+(* Just need to record the names of the constants associated with each trait *)
+type trait = NameS.t NameM.t
+
+(* impl(A trait .., ..) t trait { ... } *)
+type impl =
+  { prereqs: Ty.binds
+  ; ty: Name.t
+  ; trait: Name.t
+  ; fdecls: fdecl NameM.t
+    (* TODO: constants? desugar constants A to functions unit -> A? *)
+  }
 
 type prgm =
   { fdecls: fdecl NameM.t
   ; tdecls: tdecl NameM.t
-  ; impls: int (* TODO *)
+  ; impls: impl list
   }
