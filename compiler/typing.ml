@@ -74,7 +74,7 @@ let eapply ?m:(m=NameM.empty): Ty.t -> Meta.t NameM.t * Ty.t =
       | Var x -> let y = Meta.fresh () in (add x y m, Meta y)
       | Ptr (x, t) -> let m, t = go m t in (m, Ptr (x, t))
       | Lbl (x, t) -> let m, t = go m t in (m, Lbl (x, t))
-      | Rec _ | Sum _ -> raise Todo
+      | Rec _ | Sum _ -> raise Todo (* TODO *)
       | Fun (ts, r) ->
           let m, ts = go_list m ts in
           let m, r = go m r in
@@ -162,6 +162,7 @@ let unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
       let c, r = unfold_row extract_col build_col c r in
       (c, wrap (Sum r))
   (* Turn alias application into fresh metas *)
+  | App _ -> raise Todo (* TODO *)
   | _ -> c, ty
 
 (* val unify : ctx -> Ty.t -> Ty.t -> ctx *)
@@ -176,8 +177,8 @@ let rec unify c want have =
   | Var x, Var y, _, _ when Name.equal x y -> c
   | Ptr (x, s), Ptr (y, t), _, _ | Lbl (x, s), Lbl (y, t), _, _ ->
       unify (unify c (at x) (at y)) s t
-  | Rec _, Rec _, _, _ -> raise Todo
-  | Sum _, Sum _, _, _ -> raise Todo
+  | Rec _, Rec _, _, _ -> raise Todo (* TODO *)
+  | Sum _, Sum _, _, _ -> raise Todo (* TODO *)
   | Fun (ss, q), Fun (ts, r), _, _ ->
       let open List in
       if length ss <> length ts then
@@ -194,7 +195,7 @@ let rec check c expr ty = unify c ty (infer c expr)
 
 (* val infer : ctx -> Expr.t -> Ty.t *)
 and infer _c _e =
-  raise Todo
+  raise Todo (* TODO *)
   (*let open Node in
   match e.a with
   |*)
