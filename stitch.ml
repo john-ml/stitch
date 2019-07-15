@@ -15,7 +15,7 @@ let _ =
     mk_set (mk_var "y")
       (mk_ann
         (mk_ref (mk_ind (mk_var "x") (mk_int 3)))
-        (at (Ptr (Open (fresh ()), at (Lit (id "i32"))))))
+        (at (Ptr (Meta (fresh ()), at (Lit (id "i32"))))))
       (mk_int 0)
   in
   print_endline (Doc.render (doc (

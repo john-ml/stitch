@@ -4,25 +4,27 @@ open Misc
 
 module Ty = struct
 
-type hole = Open of Meta.t | Closed of Name.t
-
-type row = hole option
+type 'a row
+  = (* ε          *) Nil
+  | (* R          *) Closed of Name.t
+  | (* ?R         *) Open of Meta.t
+  | (* x a, ..; r *) Cons of 'a NameM.t * 'a row
 
 type t = ty Node.t
 
 and ty
   = (* i32, i64, etc.     *) Lit of Name.t
   | (* A, B, etc.         *) Var of Name.t
-  | (* *(?A, T)           *) Ptr of hole * t
-  | (* ..(?A, T)          *) Lbl of hole * t
-  | (* {x T, ..; R}       *) Rec of t NameM.t * row
-  | (* <x (T, ..), ..; R> *) Sum of t list NameM.t * row
+  | (* *(?A, T)           *) Ptr of ty * t
+  | (* ..(?A, T)          *) Lbl of ty * t
+  | (* {x T, ..; R}       *) Rec of t row
+  | (* <x (T, ..), ..; R> *) Sum of t list row
   | (* (T, ..) -> T       *) Fun of t list * t
   | (* F(T, ..)           *) App of Name.t * t list
   | (* ?A                 *) Meta of Meta.t
 
 (* Tuple types become closed single-constructor sums *)
-let tup ts = Node.at (Sum (NameM.singleton (Name.internal "tuple") ts, None))
+let tup ts = Node.at (Sum (Cons (NameM.singleton (Name.internal "tuple") ts, Nil)))
 
 (* A series of type-level bindings: A trait .., .. *)
 type binds = NameS.t NameM.t
@@ -43,40 +45,36 @@ let env: alias NameM.t =
   let open Name in
   of_list
     [ (* type bool = <__true (), __false ()> *)
-      id "bool", ([], at (Sum (of_list 
+      id "bool", ([], at (Sum (Cons (of_list 
         [internal "true", []; internal "false", []],
-        None)))
+        Nil))))
     ]
-
-let show_hole = function
-  | Open x -> Meta.show x
-  | Closed x -> Name.show x
-
-let show_row = function
-  | Some h -> show_hole h
-  | None -> ""
 
 let show =
   let open String in
   let join = concat "" in
-  let fields show_elt xs =
+  (*let fields show_elt xs =
     concat ", " (List.map (fun (x, t) ->
       concat " " [Name.show x; show_elt t]) (NameM.bindings xs))
-  in
+  in *)
   let rec go ty =
     let tuple ts = concat ", " (List.map go ts) in
+    (*let show_row = function
+      | Some t -> go (Node.at t)
+      | None -> ""
+    in *)
     match ty.Node.a with
     | Lit t -> Name.show t
     | Var x -> Name.show x
-    | Ptr (r, t) -> join ["*("; show_hole r; ", "; go t; ")"]
-    | Lbl (r, t) -> join ["..("; show_hole r; ", "; go t; ")"]
-    | Rec (xs, None) -> join ["{"; fields go xs; "}"]
-    | Rec (xs, r) -> join ["{"; fields go xs; "; "; show_row r; "}"]
-    | Sum (xs, r) ->
-        (match NameM.bindings xs, r with
+    | Ptr (r, t) -> join ["*("; go (Node.at r); ", "; go t; ")"]
+    | Lbl (r, t) -> join ["..("; go (Node.at r); ", "; go t; ")"]
+    | Rec _ -> raise Todo
+    (* | Rec (Cons (xs, r)) -> join ["{"; fields go xs; "; "; show_row r; "}"] *)
+    | Sum _ -> raise Todo
+        (*match NameM.bindings xs, r with
          | [x, ts], None when Name.(equal x (internal "tuple")) ->
              join ["("; tuple ts; ")"]
-         | _ -> join ["<"; fields tuple xs ; "; "; show_row r; ">"])
+         | _ -> join ["<"; fields tuple xs ; "; "; show_row r; ">"]*)
     | Fun (ts, r) -> join ["("; tuple ts; ") -> "; go r]
     | App (f, ts) -> join [Name.show f; "("; tuple ts; ")"]
     | Meta x -> Meta.show x
@@ -248,7 +246,7 @@ let env: Ty.poly NameM.t =
   let open Ty in
   let open Name in
   let a = at (Var (id "A")) in
-  let ptr_a = at (Ptr (Closed (id "R"), a)) in
+  let ptr_a = at (Ptr (Var (id "R"), a)) in
   let tbool = at (Var (id "bool")) in
   let un trait = (binds [id "A", [id trait]], at (Fun ([a], a))) in
   let bin trait = (binds [id "A", [id trait]], at (Fun ([a; a], a))) in
