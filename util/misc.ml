@@ -62,10 +62,21 @@ module Iso (OrdA: Set.OrderedType) (OrdB: Set.OrderedType) = struct
   module FromA = Map.Make(OrdA)
   module FromB = Map.Make(OrdB)
   type t = OrdB.t FromA.t * OrdA.t FromB.t
+  let add a b (ab, ba) = (FromA.add a b ab, FromB.add b a ba)
   let memA a (ab, _) = FromA.mem a ab
   let memB b (_, ba) = FromB.mem b ba
   let findA a (ab, _) = FromA.find a ab
   let findB b (_, ba) = FromB.find b ba
   let findA_opt a (ab, _) = FromA.find_opt a ab
   let findB_opt b (_, ba) = FromB.find_opt b ba
+end
+
+module Option = struct
+  type 'a t = 'a option
+  let map f = function
+    | Some x -> Some (f x)
+    | None as m -> m
+  let bind f = function
+    | Some x -> f x
+    | None as m -> m
 end

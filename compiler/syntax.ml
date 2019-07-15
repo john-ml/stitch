@@ -22,6 +22,7 @@ and ty
   | (* (T, ..) -> T       *) Fun of t list * t
   | (* F(T, ..)           *) App of Name.t * t list
   | (* ?A                 *) Meta of Meta.t
+  | (* ?X = F(T, ..)      *) AMeta of Meta.t
 
 (* Tuple types become closed single-constructor sums *)
 let tup ts = Node.at (Sum (Cons (NameM.singleton (Name.internal "tuple") ts, Nil)))
@@ -78,6 +79,7 @@ let show =
     | Fun (ts, r) -> join ["("; tuple ts; ") -> "; go r]
     | App (f, ts) -> join [Name.show f; "("; tuple ts; ")"]
     | Meta x -> Meta.show x
+    | AMeta x -> Meta.show x
   in go
 
 end (* Ty *)

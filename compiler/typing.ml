@@ -18,8 +18,14 @@ type ctx =
 (* Uf.find' lifted to contexts *)
 let find' x c = let uf, x = Uf.find' x c.uf in ({c with uf = uf}, x)
 
+(* Uf.union lifted to contexts *)
+let union x y c = {c with uf = Uf.union x y c.uf}
+
 (* MetaM.add lifted to contexts *)
 let add_inst x t c = let insts = MetaM.add x t c.insts in {c with insts = insts}
+
+(* AppI.add lifted to contexts *)
+let add_app x fxs c = let apps = AppI.add x fxs c.apps in {c with apps = apps}
 
 (* Helpers for working with rows/cols *)
 let extract_row = function Ty.Rec r -> Some r | _ -> None
@@ -44,7 +50,7 @@ let subst: (Span.t -> Name.t -> Ty.t) -> Ty.t -> Ty.t = fun f ->
   let rec go t = 
     let wrap ta = {t with a = ta} in
     match t.a with
-    | Lit _ | Meta _ -> t
+    | Lit _ | Meta _ | AMeta _ -> t
     | Var x -> f t.span x
     | Ptr (x, t) -> wrap (Ptr (x, go t))
     | Lbl (x, t) -> wrap (Ptr (x, go t))
@@ -69,7 +75,7 @@ let eapply ?m:(m=NameM.empty): Ty.t -> Meta.t NameM.t * Ty.t =
   let rec go m t = 
     let m, ta =
       match t.a with
-      | Lit _ | Meta _ -> (m, t.a)
+      | Lit _ | Meta _ | AMeta _ -> (m, t.a)
       | Var x when mem x m -> (m, Meta (find x m))
       | Var x -> let y = Meta.fresh () in (add x y m, Meta y)
       | Ptr (x, t) -> let m, t = go m t in (m, Ptr (x, t))
@@ -146,7 +152,7 @@ let unfold_row extract build: ctx -> 'a Ty.row -> ctx * 'a Ty.row =
      | Rec r | Sum r -> stuck_row r
      | _ -> True
      end *)
-let unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
+let rec unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
   let open Ty in
   let wrap ta = at ~sp:ty.span ta in
   match ty.a with
@@ -161,24 +167,66 @@ let unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
   | Sum r ->
       let c, r = unfold_row extract_col build_col c r in
       (c, wrap (Sum r))
-  (* Turn alias application into fresh metas *)
-  | App _ -> raise Todo (* TODO *)
+  (* Turn alias applications into AMetas *)
+  | App (f, ts) ->
+      let rec extract_metas = function
+        | [] -> Some []
+        | {a = Meta x; _} :: ts ->
+            Option.map (fun ts -> x :: ts) (extract_metas ts)
+        | _ :: _ -> None
+      in
+      (match
+        Option.bind
+          (fun ts -> AppI.findB_opt (f, ts) c.apps)
+          (extract_metas ts)
+       with
+       (* If all ts are metas and App (f, ts) has already been assigned to a 
+          meta, just return it *)
+       | Some x -> (c, wrap (AMeta x))
+       (* Otherwise... *)
+       | None ->
+           (* eapply f's definition + associate each argument with a fresh meta x *)
+           assert (NameM.mem f c.aliases);
+           let args, ty = NameM.find f c.aliases in
+           assert List.(length args = length ts);
+           let arg_xs, ty = eapply ty in
+           (* Associate each fresh meta with its corresponding argument t *)
+           let c, xs =
+             let open List in
+             fold_left
+               (fun (c, xs) (arg, t) ->
+                  let x = NameM.find arg arg_xs in
+                  let c = unify c (at ~sp:t.span (Meta x)) t in
+                  (c, x :: xs))
+               (c, [])
+               (combine args ts)
+           in
+           (* Associate App (f, xs) with a fresh meta y *)
+           let y = Meta.fresh () in
+           let c = add_app y (f, xs) c in
+           (* Associate y with its unfolding and return AMeta y *)
+           let c = add_inst y ty c in
+           (c, wrap (AMeta y)))
   | _ -> c, ty
 
 (* val unify : ctx -> Ty.t -> Ty.t -> ctx *)
-let rec unify c want have =
+and unify c want have =
   let c, want = unfold c want in
   let c, have = unfold c have in
   let open Ty in
   match want.a, have.a, want, have with
-  | Meta x, Meta y, _, _ -> {c with uf = Uf.union x y c.uf}
+  (* If both stuck metas, add equality constraint *)
+  | Meta x, Meta y, _, _ -> union x y c
+  (* If 1 stuck meta, add instantiation *)
   | Meta x, _, _, ty | _, Meta x, ty, _ -> {c with insts = MetaM.add x ty c.insts}
+  | Rec _, Rec _, _, _ -> raise Todo (* TODO *)
+  | Sum _, Sum _, _, _ -> raise Todo (* TODO *)
+  | App _, _, _, _ | _, App _, _, _ -> raise Todo
+  (* Straightforward recursive cases *)
   | Lit s, Lit t, _, _ when Name.equal s t -> c
   | Var x, Var y, _, _ when Name.equal x y -> c
   | Ptr (x, s), Ptr (y, t), _, _ | Lbl (x, s), Lbl (y, t), _, _ ->
       unify (unify c (at x) (at y)) s t
-  | Rec _, Rec _, _, _ -> raise Todo (* TODO *)
-  | Sum _, Sum _, _, _ -> raise Todo (* TODO *)
   | Fun (ss, q), Fun (ts, r), _, _ ->
       let open List in
       if length ss <> length ts then
@@ -187,7 +235,6 @@ let rec unify c want have =
           (length ss) (length ts))))
       else
         fold_left (fun c (s, t) -> unify c s t) (unify c q r) (combine ss ts)
-  | App _, _, _, _ | _, App _, _, _ -> raise Todo
   | _ -> raise (Mismatch (c, want, have, None))
 
 (* val check : ctx -> Expr.t -> Ty.t -> ctx *)
