@@ -76,7 +76,7 @@ let apply: Ty.alias -> Ty.t list -> Ty.t = fun (args, t) ts ->
   let m = NameM.of_list (List.combine args ts) in
   subst (fun _ x -> NameM.find x m) t
 
-(* Helper for `eapply`. *)
+(* Helper for `eapply` *)
 let rec eapply_row go m r: Meta.t NameM.t * 'a Ty.row =
   let open Ty in
   match r with
@@ -99,13 +99,12 @@ let rec eapply_row go m r: Meta.t NameM.t * 'a Ty.row =
    Return updated Name -> Meta mapping. *)
 let eapply ?m:(m=NameM.empty): Ty.t -> Meta.t NameM.t * Ty.t =
   let open Ty in
-  let open NameM in
   let rec go m t = 
     let m, ta =
       match t.a with
       | Lit _ | Meta _ -> (m, t.a)
-      | Var x when mem x m -> (m, Meta (find x m))
-      | Var x -> let y = Meta.fresh () in (add x y m, Meta y)
+      | Var x when NameM.mem x m -> (m, Meta (NameM.find x m))
+      | Var x -> let y = Meta.fresh () in (NameM.add x y m, Meta y)
       | Ptr (x, t) -> let m, t = go m t in (m, Ptr (x, t))
       | Lbl (x, t) -> let m, t = go m t in (m, Lbl (x, t))
       | Rec r -> let m, r = eapply_row go m r in (m, Rec r)
@@ -127,6 +126,7 @@ let eapply ?m:(m=NameM.empty): Ty.t -> Meta.t NameM.t * Ty.t =
   in
   go m
 
+(* Helper for `unfold` *)
 let unfold_row extract build: ctx -> 'a Ty.row -> ctx * 'a Ty.row =
   let rec go c r =
     let open Ty in
@@ -319,15 +319,90 @@ and unify c want have =
   | Left c -> c
   | Right (c, want, have) -> 
       let open Ty in
+      (* Unify closed rows/columns xts ~ yts.
+         The `unify` argument is used to make the function work for both rows
+         and columns. *)
+      let unify_closed unify c xts yts =
+        (* Compute mapping from field names to (types in xts * types in yts) *)
+        let xyts =
+          NameM.merge
+            (fun x ms mt -> match ms, mt with
+             (* The set of field names must match exactly *)
+             | Some s, Some t -> Some (s, t)
+             | None, _ ->
+                 raise (Mismatch (c, want, have, Some (Printf.sprintf
+                   "former is missing field/variant %s" (Name.show x))))
+             | _, None ->
+                 raise (Mismatch (c, want, have, Some (Printf.sprintf
+                   "latter is missing field/variant %s" (Name.show x)))))
+            xts yts
+        in
+        (* Must have s ~ t for each pair of types s, t in xyts *)
+        NameM.fold (fun _ (s, t) c -> unify c s t) xyts c
+      in
+      (* Unify open rows/columns xts ~ yts, where x and y are metas available
+         for instantiation. stuck x /\ stuck y thanks to `unfold`.
+         The `unify` and `build` arguments are used to make the function work
+         for both rows and columns. *)
+      let unify_open unify build x y c xts yts =
+        let open NameM in
+        (* Collect:
+           - An updated c yielded by unifying all types corresponding to
+             field names present in both xts and yts
+           - `left : row/col NameM.t`: field names & types present only in xts
+           - `right : row/col NameM.t`: field names & types present only in yts
+        *)
+        let xyts =
+          merge
+            (fun x ms mt -> match ms, mt with
+             | Some s, Some t -> Some (Right (s, t))
+             | Some s, None -> Some (Left (Left (x, s)))
+             | None, Some t -> Some (Left (Right (x, t)))
+             | None, None -> None)
+            xts yts
+        in
+        let c, lefts, rights =
+          fold
+            (fun _ res (c, lefts, rights) -> match res with
+             | Right (s, t) -> (unify c s t, lefts, rights)
+             | Left (Left (x, s)) -> (c, add x s lefts, rights)
+             | Left (Right (x, t)) -> (c, lefts, add x t rights))
+            xyts (c, empty, empty)
+        in
+        (* Generate fresh metas x' and y' and instantiate
+             x = rights; x'
+             y = lefts; y'
+        *)
+        let x', y' = Meta.(fresh (), fresh ()) in
+        c |> add_inst x (at (build (Cons (rights, Open x'))))
+          |> add_inst y (at (build (Cons (lefts, Open y'))))
+      in
       match want.a, have.a, want, have with
       (* All metas should be stuck thanks to `unfold` and `demeta`.
-         If 2 metas, add an equality constraint. *)
+         If 2 metas, add an equality constraint *)
       | Meta x, Meta y, _, _ -> union x y c
       (* If 1 meta, add instantiation *)
       | Meta x, _, _, ty | _, Meta x, ty, _ -> add_inst x ty c
-      (* Rec and Sum should be stuck thanks to `unfold` *)
-      | Rec _, Rec _, _, _ -> raise Todo (* TODO *)
-      | Sum _, Sum _, _, _ -> raise Todo (* TODO *)
+      (* Rec and Sum should be stuck thanks to `unfold`.
+         `unify_closed` for Cons cases with closed rows/cols *)
+      | Rec (Cons (xts, Nil)), Rec (Cons (yts, Nil)), _, _ ->
+          unify_closed unify c xts yts
+      | Sum (Cons (xtss, Nil)), Sum (Cons (ytss, Nil)), _, _ ->
+          unify_closed unify_list c xtss ytss
+      | Rec (Cons (xts, Closed x)), Rec (Cons (yts, Closed y)), _, _
+        when Name.equal x y -> unify_closed unify c xts yts
+      | Sum (Cons (xtss, Closed x)), Sum (Cons (ytss, Closed y)), _, _
+        when Name.equal x y -> unify_closed unify_list c xtss ytss
+      (* `unify_open` for Cons cases with open rows/cols *)
+      | Rec (Cons (xts, Open x)), Rec (Cons (yts, Open y)), _, _ ->
+          unify_open unify build_row x y c xts yts
+      | Sum (Cons (xtss, Open x)), Sum (Cons (ytss, Open y)), _, _ ->
+          unify_open unify_list build_col x y c xtss ytss
+      (* Nested Cons should be impossible thanks to `unfold` *)
+      | Rec (Cons (_, Cons _)), Rec (Cons (_, Cons _)), _, _
+      | Sum (Cons (_, Cons _)), Sum (Cons (_, Cons _)), _, _
+      (* Cons (_, Nil | Closed _ | Open _) should be impossible (kind error) *)
+      | Rec _, Rec _, _, _ | Sum _, Sum _, _, _ -> assert false
       (* App should be impossible thanks to `unfold` *)
       | App _, _, _, _ | _, App _, _, _ -> assert false
       (* Straightforward recursive cases *)
@@ -339,14 +414,15 @@ and unify c want have =
           let open List in
           if length ss <> length ts then
             raise (Mismatch (c, want, have, Some (Printf.sprintf
-              "(former expects %d arguments while the latter expects %d)"
+              "former expects %d arguments while the latter expects %d"
               (length ss) (length ts))))
           else
-            fold_left
-              (fun c (s, t) -> unify c s t) 
-              (unify c q r)
-              (combine ss ts)
+            unify (unify_list c ss ts) q r
       | _ -> raise (Mismatch (c, want, have, None))
+
+and unify_list c wants haves =
+  let open List in
+  fold_left (fun c (s, t) -> unify c s t) c (combine wants haves)
 
 (* val check : ctx -> Expr.t -> Ty.t -> ctx *)
 let rec check c expr ty = unify c ty (infer c expr)
