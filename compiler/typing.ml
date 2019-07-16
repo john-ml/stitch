@@ -343,18 +343,24 @@ and demeta (want: Ty.t) (have: Ty.t) (c: Ctx.t): (Ctx.t, Ctx.t * Ty.t * Ty.t) ei
   | _, _, _, _ -> Right (c, want, have)
 
 (* val unify : Ty.t -> Ty.t -> Ctx.t -> Ctx.t *)
-and unify want have c =
-  print_endline (Printf.sprintf "%s ~ %s -| %s" 
-    (Ty.show want) (Ty.show have) (Ctx.show c));
+and unify ?verbose:(verbose=false) want have c =
+  if verbose then 
+    print_endline (Printf.sprintf "%s ~ %s -| %s" 
+      (Ty.show want) (Ty.show have) (Ctx.show c))
+  else ();
   let c, want = unfold want c in
   let c, have = unfold have c in
-  print_endline (Printf.sprintf "%s ~ %s -| %s (unfolded)" 
-    (Ty.show want) (Ty.show have) (Ctx.show c));
+  if verbose then 
+    print_endline (Printf.sprintf "unfolded: %s ~ %s -| %s"
+      (Ty.show want) (Ty.show have) (Ctx.show c))
+  else ();
   match demeta want have c with
   | Left c -> c
   | Right (c, want, have) -> 
-      print_endline (Printf.sprintf "%s ~ %s -| %s (demeta-d)" 
-        (Ty.show want) (Ty.show have) (Ctx.show c));
+      if verbose then
+        print_endline (Printf.sprintf "demeta-d: %s ~ %s -| %s"
+          (Ty.show want) (Ty.show have) (Ctx.show c))
+      else ();
       let open Ty in
       (* Unify closed rows/columns xts ~ yts.
          The `unify` argument is used to make the function work for both rows

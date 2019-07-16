@@ -58,6 +58,7 @@ let _ =
   dump uf
 
 let _ =
+  let open Name in
   let open Node in
   let open Ty in
   let open Typing in
@@ -73,36 +74,51 @@ let _ =
     }
   in
   let p, _q, _r, _s = Meta.(fresh (), fresh (), fresh (), fresh ()) in
-  let x, y, z, _w = Meta.(fresh (), fresh (), fresh (), fresh ()) in
-  let dump c = print_endline (Ctx.show c) in
+  let x, y, z, w = Meta.(fresh (), fresh (), fresh (), fresh ()) in
+  let dump k =
+    try print_endline (Ctx.show (k empty))
+    with Mismatch (c, want, have, mmsg) ->
+      print_endline (Printf.sprintf
+        "Expected %s but got %s%s. Context: %s"
+        (Ty.show want) (Ty.show have)
+        (match mmsg with None -> "" | Some msg -> " ("^msg^")")
+        (Ctx.show c))
+  in
   let f t = at (Ptr (Meta p, t)) in
-  let mx, my, mz = at (Meta x), at (Meta y), at (Meta z) in
+  let mx, my, mz, mw = at (Meta x), at (Meta y), at (Meta z), at (Meta w) in
   (* μ x. *x ~ μ y. *y *)
-  dump (empty
+  dump (fun c -> c
     |> unify mx (f mx)
     |> unify my (f my)
     |> unify mx my);
   (* μ x. *x ~ μ y. **y *)
-  dump (empty
+  dump (fun c -> c
     |> unify mx (f mx)
     |> unify my (f (f my))
     |> unify mx my);
   (* μ x. f^10(x) ~ μ y. f^11(y) *)
-  dump (empty
+  dump (fun c -> c
     |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
     |> unify my (f (f (f (f (f (f (f (f (f (f (f my)))))))))))
     |> unify mx my);
-  (* x = f(y), y = f(x), z = f(z) ==> x ~ z *)
-  dump (empty
+  (* ?x = f(?y), ?y = f(?x), ?z = f(?z) ==> ?x ~ ?z *)
+  dump (fun c -> c
     |> unify mx (f my)
     |> unify my (f mz)
     |> unify mz (f mz)
     |> unify mx mz);
-  (* x = f(y), y = f(y) ==> x ~ y *)
-  dump (empty
+  (* ?x = f(?y), ?y = f(?y) ==> ?x ~ ?y *)
+  dump (fun c -> c
     |> unify mx (f my)
     |> unify my (f my)
     |> unify mx my);
-  dump (empty
+  (* ?x = f(f(?x)) ==> ?x ~ f(?x) *)
+  dump (fun c -> c
     |> unify mx (f (f mx))
-    |> unify mx (f mx))
+    |> unify mx (f mx));
+  (* x /~ y *)
+  dump (fun c -> c |> unify (at (Var (id "x"))) (at (Var (id "y"))));
+  dump (fun c -> c
+    |> unify mx my
+    |> unify mz mw
+    |> unify mx mw)
