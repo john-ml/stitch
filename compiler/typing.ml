@@ -127,8 +127,8 @@ let eapply ?m:(m=NameM.empty): Ty.t -> Meta.t NameM.t * Ty.t =
   go m
 
 (* Helper for `unfold` *)
-let unfold_row extract build: ctx -> 'a Ty.row -> ctx * 'a Ty.row =
-  let rec go c r =
+let unfold_row extract build: 'a Ty.row -> ctx -> ctx * 'a Ty.row =
+  let rec go r c =
     let open Ty in
     match r with
     | Nil | Closed _ -> (c, r)
@@ -138,15 +138,14 @@ let unfold_row extract build: ctx -> 'a Ty.row -> ctx * 'a Ty.row =
         (try let t = MetaM.find x c.insts in
              match extract t.a with
              | Some r ->
-                 let c, r = go c r in
+                 let c, r = go r c in
                  (* 'Path compression' on row-metas *)
-                 let c = add_inst x (at ~sp:t.span (build r)) c in
-                 (c, r)
+                 (add_inst x (at ~sp:t.span (build r)) c, r)
              | _ -> assert false
          with Not_found -> (c, Open x))
     | Cons (xts, r) ->
         (* Recursively unfold nested rows *)
-        let c, r = go c r in
+        let c, r = go r c in
         let xtsr =
           (* Collapse Cons (xts, Cons (yts, r)) -> Cons (xts ∪ yts, r) *)
           match r with
@@ -183,15 +182,15 @@ let unfold_row extract build: ctx -> 'a Ty.row -> ctx * 'a Ty.row =
      | _ -> True
      end
 *)
-let rec unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
+let rec unfold (ty: Ty.t) (c: ctx): ctx * Ty.t =
   let open Ty in
   let wrap ta = at ~sp:ty.span ta in
   match ty.a with
   (* Root metas *)
   | Meta x -> let c, x = find' x c in (c, wrap (Meta x))
   (* Unfold row/col variables *)
-  | Rec r -> let c, r = unfold_row extract_row build_row c r in (c, wrap (Rec r))
-  | Sum r -> let c, r = unfold_row extract_col build_col c r in (c, wrap (Sum r))
+  | Rec r -> let c, r = unfold_row extract_row build_row r c in (c, wrap (Rec r))
+  | Sum r -> let c, r = unfold_row extract_col build_col r c in (c, wrap (Sum r))
   (* Turn alias applications into Metas *)
   | App (f, ts) ->
       let rec extract_metas = function
@@ -221,17 +220,16 @@ let rec unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
              fold_left
                (fun (c, xs) (arg, t) ->
                   let x = NameM.find arg arg_xs in
-                  let c = unify c (at ~sp:t.span (Meta x)) t in
-                  (c, x :: xs))
+                  (unify (at ~sp:t.span (Meta x)) t c, x :: xs))
                (c, [])
                (combine args ts)
            in
-           (* Associate App (f, xs) with a fresh meta y *)
+           (* Associate App (f, xs) with a fresh meta y,
+              associate y with its unfolding, 
+              and return Meta y 
+           *)
            let y = Meta.fresh () in
-           let c = add_app y (f, xs) c in
-           (* Associate y with its unfolding and return Meta y *)
-           let c = add_inst y ty c in
-           (c, wrap (Meta y)))
+           (c |> add_app y (f, xs) |> add_inst y ty, wrap (Meta y)))
   | _ -> c, ty
 
 (* Unfold metas to expose a non-Meta constructor at root, if possible,
@@ -243,7 +241,7 @@ let rec unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
      | _ -> True
      end
 *)
-and demeta (c: ctx) (want: Ty.t) (have: Ty.t): (ctx, ctx * Ty.t * Ty.t) either =
+and demeta (want: Ty.t) (have: Ty.t) (c: ctx): (ctx, ctx * Ty.t * Ty.t) either =
   let open Ty in
   let expand (t: Ty.t): Ty.t =
     match t.a with
@@ -311,18 +309,18 @@ and demeta (c: ctx) (want: Ty.t) (have: Ty.t): (ctx, ctx * Ty.t * Ty.t) either =
            Right (c, expand want, expand have))
   | _, _ -> Right (c, expand want, expand have)
 
-(* val unify : ctx -> Ty.t -> Ty.t -> ctx *)
-and unify c want have =
-  let c, want = unfold c want in
-  let c, have = unfold c have in
-  match demeta c want have with
+(* val unify : Ty.t -> Ty.t -> ctx -> ctx *)
+and unify want have c =
+  let c, want = unfold want c in
+  let c, have = unfold have c in
+  match demeta want have c with
   | Left c -> c
   | Right (c, want, have) -> 
       let open Ty in
       (* Unify closed rows/columns xts ~ yts.
          The `unify` argument is used to make the function work for both rows
          and columns. *)
-      let unify_closed unify c xts yts =
+      let unify_closed unify xts yts c =
         (* Compute mapping from field names to (types in xts * types in yts) *)
         let xyts =
           NameM.merge
@@ -338,13 +336,13 @@ and unify c want have =
             xts yts
         in
         (* Must have s ~ t for each pair of types s, t in xyts *)
-        NameM.fold (fun _ (s, t) c -> unify c s t) xyts c
+        NameM.fold (fun _ (s, t) c -> unify s t c) xyts c
       in
       (* Unify open rows/columns xts ~ yts, where x and y are metas available
          for instantiation. stuck x /\ stuck y thanks to `unfold`.
          The `unify` and `build` arguments are used to make the function work
          for both rows and columns. *)
-      let unify_open unify build x y c xts yts =
+      let unify_open unify build x y xts yts c =
         let open NameM in
         (* Collect:
            - An updated c yielded by unifying all types corresponding to
@@ -364,7 +362,7 @@ and unify c want have =
         let c, lefts, rights =
           fold
             (fun _ res (c, lefts, rights) -> match res with
-             | Right (s, t) -> (unify c s t, lefts, rights)
+             | Right (s, t) -> (unify s t c, lefts, rights)
              | Left (Left (x, s)) -> (c, add x s lefts, rights)
              | Left (Right (x, t)) -> (c, lefts, add x t rights))
             xyts (c, empty, empty)
@@ -386,18 +384,18 @@ and unify c want have =
       (* Rec and Sum should be stuck thanks to `unfold`.
          `unify_closed` for Cons cases with closed rows/cols *)
       | Rec (Cons (xts, Nil)), Rec (Cons (yts, Nil)), _, _ ->
-          unify_closed unify c xts yts
+          unify_closed unify xts yts c
       | Sum (Cons (xtss, Nil)), Sum (Cons (ytss, Nil)), _, _ ->
-          unify_closed unify_list c xtss ytss
+          unify_closed unify_list xtss ytss c
       | Rec (Cons (xts, Closed x)), Rec (Cons (yts, Closed y)), _, _
-        when Name.equal x y -> unify_closed unify c xts yts
+        when Name.equal x y -> unify_closed unify xts yts c
       | Sum (Cons (xtss, Closed x)), Sum (Cons (ytss, Closed y)), _, _
-        when Name.equal x y -> unify_closed unify_list c xtss ytss
+        when Name.equal x y -> unify_closed unify_list xtss ytss c
       (* `unify_open` for Cons cases with open rows/cols *)
       | Rec (Cons (xts, Open x)), Rec (Cons (yts, Open y)), _, _ ->
-          unify_open unify build_row x y c xts yts
+          unify_open unify build_row x y xts yts c
       | Sum (Cons (xtss, Open x)), Sum (Cons (ytss, Open y)), _, _ ->
-          unify_open unify_list build_col x y c xtss ytss
+          unify_open unify_list build_col x y xtss ytss c
       (* Nested Cons should be impossible thanks to `unfold` *)
       | Rec (Cons (_, Cons _)), Rec (Cons (_, Cons _)), _, _
       | Sum (Cons (_, Cons _)), Sum (Cons (_, Cons _)), _, _
@@ -409,7 +407,7 @@ and unify c want have =
       | Lit s, Lit t, _, _ when Name.equal s t -> c
       | Var x, Var y, _, _ when Name.equal x y -> c
       | Ptr (x, s), Ptr (y, t), _, _ | Lbl (x, s), Lbl (y, t), _, _ ->
-          unify (unify c (at x) (at y)) s t
+          c |> unify (at x) (at y) |> unify s t
       | Fun (ss, q), Fun (ts, r), _, _ ->
           let open List in
           if length ss <> length ts then
@@ -417,18 +415,20 @@ and unify c want have =
               "former expects %d arguments while the latter expects %d"
               (length ss) (length ts))))
           else
-            unify (unify_list c ss ts) q r
+            c |> unify q r |> unify_list ss ts
       | _ -> raise (Mismatch (c, want, have, None))
 
-and unify_list c wants haves =
+and unify_list wants haves c =
   let open List in
-  fold_left (fun c (s, t) -> unify c s t) c (combine wants haves)
+  fold_left (fun c (s, t) -> unify s t c) c (combine wants haves)
 
-(* val check : ctx -> Expr.t -> Ty.t -> ctx *)
-let rec check c expr ty = unify c ty (infer c expr)
+(* val check : Expr.t -> Ty.t -> ctx -> ctx *)
+let rec check_expr expr ty c =
+  let c, t = infer_expr expr c in 
+  unify ty t c
 
-(* val infer : ctx -> Expr.t -> Ty.t *)
-and infer _c _e =
+(* val infer : Expr.t -> ctx -> ctx * Ty.t *)
+and infer_expr _e _c =
   raise Todo (* TODO *)
   (*let open Node in
   match e.a with

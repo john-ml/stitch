@@ -59,4 +59,4 @@ let _ =
 
 let _ =
   let open Typing in
-  infer
+  infer_expr
