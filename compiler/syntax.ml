@@ -80,7 +80,61 @@ let show =
     | Meta x -> Meta.show x
   in go
 
+let rec compare_row compare l r =
+  let ctr = function
+    | Nil -> 0
+    | Closed _ -> 1
+    | Open _ -> 2
+    | Cons _ -> 3
+  in
+  match ctr l - ctr r with
+  | 0 ->
+      (match l, r with
+       | Nil, Nil -> 0
+       | Closed x, Closed y -> Name.compare x y
+       | Open x, Open y -> Meta.compare x y
+       | Cons (xts, l), Cons (yts, r) ->
+           (match NameM.compare compare xts yts with
+            | 0 -> compare_row compare l r
+            | cmp -> cmp)
+       | _, _ -> assert false)
+  | cmp -> cmp
+
+let compare l r =
+  let open Node in
+  let ctr = function
+    | Lit _ -> 0
+    | Var _ -> 1
+    | Ptr _ -> 2
+    | Lbl _ -> 3
+    | Rec _ -> 4
+    | Sum _ -> 5
+    | Fun _ -> 6
+    | App _ -> 7
+    | Meta _ -> 8
+  in
+  let rec go l r =
+    match ctr l - ctr r with
+    | 0 ->
+        (match l, r with
+         | Lit x, Lit y | Var x, Var y -> Name.compare x y
+         | Ptr (q, s), Ptr (r, t) | Lbl (q, s), Lbl (r, t) -> 
+             Compare.pair go compare (q, s) (r, t)
+         | Rec l, Rec r -> compare_row compare l r
+         | Sum l, Sum r -> compare_row (Compare.list compare) l r
+         | Fun (ss, q), Fun (ts, r) ->
+             Compare.(pair (list compare) compare) (ss, q) (ts, r)
+         | App (g, ss), App (f, ts) ->
+             Compare.(pair Name.compare (list compare)) (g, ss) (f, ts)
+         | Meta x, Meta y -> Meta.compare x y
+         | _, _ -> assert false)
+    | cmp -> cmp
+  in
+  go l.a r.a
+
 end (* Ty *)
+
+module TyS = Set.Make(Ty)
 
 module Expr = struct
 

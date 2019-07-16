@@ -58,5 +58,51 @@ let _ =
   dump uf
 
 let _ =
+  let open Node in
+  let open Ty in
   let open Typing in
-  infer_expr
+  let empty = 
+    { Ctx
+    . locals = NameM.empty
+    ; globals = NameM.empty
+    ; aliases = NameM.empty
+    ; uf = Uf.empty
+    ; insts = MetaM.empty
+    ; rec_insts = MetaM.empty
+    ; apps = AppI.empty
+    }
+  in
+  let p, _q, _r, _s = Meta.(fresh (), fresh (), fresh (), fresh ()) in
+  let x, y, z, _w = Meta.(fresh (), fresh (), fresh (), fresh ()) in
+  let dump c = print_endline (Ctx.show c) in
+  let f t = at (Ptr (Meta p, t)) in
+  let mx, my, mz = at (Meta x), at (Meta y), at (Meta z) in
+  (* μ x. *x ~ μ y. *y *)
+  dump (empty
+    |> unify mx (f mx)
+    |> unify my (f my)
+    |> unify mx my);
+  (* μ x. *x ~ μ y. **y *)
+  dump (empty
+    |> unify mx (f mx)
+    |> unify my (f (f my))
+    |> unify mx my);
+  (* μ x. f^10(x) ~ μ y. f^11(y) *)
+  dump (empty
+    |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
+    |> unify my (f (f (f (f (f (f (f (f (f (f (f my)))))))))))
+    |> unify mx my);
+  (* x = f(y), y = f(x), z = f(z) ==> x ~ z *)
+  dump (empty
+    |> unify mx (f my)
+    |> unify my (f mz)
+    |> unify mz (f mz)
+    |> unify mx mz);
+  (* x = f(y), y = f(y) ==> x ~ y *)
+  dump (empty
+    |> unify mx (f my)
+    |> unify my (f my)
+    |> unify mx my);
+  dump (empty
+    |> unify mx (f (f mx))
+    |> unify mx (f mx))

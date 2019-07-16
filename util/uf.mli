@@ -18,3 +18,5 @@ val equal : Meta.t -> Meta.t -> t -> bool
 
 (* Check if two metas are equal and perform path-compression *)
 val equal' : Meta.t -> Meta.t -> t -> t * bool
+
+val show : t -> string

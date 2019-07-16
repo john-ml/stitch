@@ -14,7 +14,7 @@ let rec find' x m =
   | None -> (m, x)
   | Some x ->
       let m, y = find' x m in
-      (MetaM.add x y m, y)
+      if x = y then (m, y) else (MetaM.add x y m, y)
 
 let union x y m =
   let m, x = find' x m in
@@ -27,3 +27,5 @@ let equal' x y m =
   let m, x = find' x m in
   let m, y = find' y m in
   (m, x = y)
+
+let show = Show.show_map MetaM.bindings Meta.show Meta.show

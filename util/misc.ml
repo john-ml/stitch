@@ -37,31 +37,39 @@ module IntS = Set.Make (struct
   let compare = (-)
 end)
 
-module OrdList (Ord: Set.OrderedType) = struct
-  type t = Ord.t list
-  let rec compare xs ys =
+module Compare = struct
+  let pair compare_a compare_b (x1, y1) (x2, y2) =
+    match compare_a x1 x2 with
+    | 0 -> compare_b y1 y2
+    | r -> r
+  let rec list compare xs ys =
     match xs, ys with
     | [], [] -> 0
     | [], _ :: _ -> -1
     | _ :: _, [] -> 1
     | x :: xs, y :: ys ->
-        match Ord.compare x y with
-        | 0 -> compare xs ys
+        match compare x y with
+        | 0 -> list compare xs ys
         | r -> r
+end
+
+module OrdList (Ord: Set.OrderedType) = struct
+  type t = Ord.t list
+  let compare xs ys = Compare.list Ord.compare xs ys
 end
 
 module OrdPair (OrdA: Set.OrderedType) (OrdB: Set.OrderedType) = struct
   type t = OrdA.t * OrdB.t
-  let compare (x1, y1) (x2, y2) =
-    match OrdA.compare x1 x2 with
-    | 0 -> OrdB.compare y1 y2
-    | r -> r
+  let compare p1 p2 = Compare.pair OrdA.compare OrdB.compare p1 p2
 end
 
 module Iso (OrdA: Set.OrderedType) (OrdB: Set.OrderedType) = struct
   module FromA = Map.Make(OrdA)
   module FromB = Map.Make(OrdB)
-  type t = OrdB.t FromA.t * OrdA.t FromB.t
+  type a = OrdA.t
+  type b = OrdB.t
+  type t = b FromA.t * a FromB.t
+  let empty = (FromA.empty, FromB.empty)
   let add a b (ab, ba) = (FromA.add a b ab, FromB.add b a ba)
   let memA a (ab, _) = FromA.mem a ab
   let memB b (_, ba) = FromB.mem b ba
@@ -69,6 +77,7 @@ module Iso (OrdA: Set.OrderedType) (OrdB: Set.OrderedType) = struct
   let findB b (_, ba) = FromB.find b ba
   let findA_opt a (ab, _) = FromA.find_opt a ab
   let findB_opt b (_, ba) = FromB.find_opt b ba
+  let equalities (ab, _) = FromA.bindings ab
 end
 
 module Option = struct
@@ -82,3 +91,31 @@ module Option = struct
 end
 
 type ('a, 'b) either = Left of 'a | Right of 'b
+
+module type Show = sig
+  type t
+  val show : t -> string
+end
+
+module Show = struct
+  let show_list show_elt xs = 
+    "[" ^ String.concat "; " (List.map show_elt xs) ^ "]"
+  let show_pair show_a show_b (a, b) =
+    "(" ^ show_a a ^ ", " ^ show_b b ^ ")"
+  let show_set elements show_elt s =
+    "{" ^ String.concat ", " (List.map show_elt (elements s)) ^ "}"
+  let show_map bindings show_k show_v m =
+    let kvs = 
+      List.map 
+        (fun (k, v) -> show_k k ^ " -> " ^ show_v v)
+        (bindings m)
+    in
+    "{" ^ String.concat ", " kvs ^ "}"
+  let show_iso equalities show_a show_b i =
+    let abs = 
+      List.map 
+        (fun (a, b) -> show_a a ^ " <-> " ^ show_b b)
+        (equalities i)
+    in
+    "{" ^ String.concat ", " abs ^ "}"
+end
