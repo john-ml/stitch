@@ -76,8 +76,26 @@ let apply: Ty.alias -> Ty.t list -> Ty.t = fun (args, t) ts ->
   let m = NameM.of_list (List.combine args ts) in
   subst (fun _ x -> NameM.find x m) t
 
+(* Helper for `eapply`. *)
+let rec eapply_row go m r: Meta.t NameM.t * 'a Ty.row =
+  let open Ty in
+  match r with
+  | Nil | Closed _ | Open _ -> (m, r)
+  | Cons (xts, r) ->
+      let m, xts =
+        let open NameM in
+        fold 
+          (fun k v (m, xts) -> 
+             let m, v = go m v in
+             (m, add k v xts))
+          xts (m, empty)
+      in
+      let m, r = eapply_row go m r in
+      (m, Cons (xts, r))
+
 (* Replace variables with metas as given by the mapping `m`.
    Replace variables not in `m` with fresh metas.
+   Doesn't zonk anything.
    Return updated Name -> Meta mapping. *)
 let eapply ?m:(m=NameM.empty): Ty.t -> Meta.t NameM.t * Ty.t =
   let open Ty in
@@ -90,7 +108,8 @@ let eapply ?m:(m=NameM.empty): Ty.t -> Meta.t NameM.t * Ty.t =
       | Var x -> let y = Meta.fresh () in (add x y m, Meta y)
       | Ptr (x, t) -> let m, t = go m t in (m, Ptr (x, t))
       | Lbl (x, t) -> let m, t = go m t in (m, Lbl (x, t))
-      | Rec _ | Sum _ -> raise Todo (* TODO *)
+      | Rec r -> let m, r = eapply_row go m r in (m, Rec r)
+      | Sum r -> let m, r = eapply_row go_list m r in (m, Sum r)
       | Fun (ts, r) ->
           let m, ts = go_list m ts in
           let m, r = go m r in
@@ -220,7 +239,7 @@ let rec unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
 
    forall updated wants and haves as r,
      match r with
-     | Some (Meta x) -> stuck x
+     | Meta x -> stuck x
      | _ -> True
      end
 *)
@@ -267,7 +286,7 @@ and demeta (c: ctx) (want: Ty.t) (have: Ty.t): (ctx, ctx * Ty.t * Ty.t) either =
      Unioning ?x ~ ?y and asking unify to show F(?x) ~ F(F(?y)) yields:
        F(?x) ~ F(F(?y)) (* Recursion *)
        ?x ~ F(?y)       (* unfold ?x *)
-       ?y ~ F(?y)       (* demeta ?x *)
+       ?y ~ F(?y)       (* demeta ?y *)
        F(F(?y)) ~ F(?y) (* Recursion *)
        F(?y) ~ ?y       (* unfold ?y *)
        F(?y) ~ ?y       (* demeta ?y *)
@@ -301,13 +320,12 @@ and unify c want have =
   | Right (c, want, have) -> 
       let open Ty in
       match want.a, have.a, want, have with
-      (* Metas should be stuck thanks to unfold.
-         If both stuck, add equality constraint.
-         Thanks to demeta, the two metas can't be equal under some hypothesis thanks to demeta. *)
+      (* All metas should be stuck thanks to `unfold` and `demeta`.
+         If 2 metas, add an equality constraint. *)
       | Meta x, Meta y, _, _ -> union x y c
-      (* If 1 stuck, add instantiation *)
+      (* If 1 meta, add instantiation *)
       | Meta x, _, _, ty | _, Meta x, ty, _ -> add_inst x ty c
-      (* Rec and Sum should be stuck thanks to unfold *)
+      (* Rec and Sum should be stuck thanks to `unfold` *)
       | Rec _, Rec _, _, _ -> raise Todo (* TODO *)
       | Sum _, Sum _, _, _ -> raise Todo (* TODO *)
       (* App should be impossible thanks to `unfold` *)
