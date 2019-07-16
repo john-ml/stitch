@@ -11,21 +11,31 @@ type ctx =
   ; (* Global / polymorphic     *) globals: Ty.poly NameM.t  
   ; (* Type aliases             *) aliases: Ty.alias NameM.t 
   ; (* Equalities among metas   *) uf: Uf.t                  
+  ; (* Coinductive hypotheses   *) rec_uf: Uf.t                  
   ; (* Instantiations for metas *) insts: Ty.t MetaM.t       
   ; (* Metas for applications   *) apps: AppI.t              
   }
 
 (* Uf.find' lifted to contexts *)
 let find' x c = let uf, x = Uf.find' x c.uf in ({c with uf = uf}, x)
+let rec_find' x c =
+  let rec_uf, x = Uf.find' x c.rec_uf in 
+  ({c with rec_uf = rec_uf}, x)
 
 (* Uf.union lifted to contexts *)
 let union x y c = {c with uf = Uf.union x y c.uf}
+let rec_union x y c = {c with rec_uf = Uf.union x y c.rec_uf}
+
+(* Uf.equal' lifted to contexts *)
+let rec_equal' x y c =
+  let rec_uf, p = Uf.equal' x y c.rec_uf in
+  ({c with rec_uf = rec_uf}, p)
 
 (* MetaM.add lifted to contexts *)
-let add_inst x t c = let insts = MetaM.add x t c.insts in {c with insts = insts}
+let add_inst x t c = {c with insts = MetaM.add x t c.insts}
 
 (* AppI.add lifted to contexts *)
-let add_app x fxs c = let apps = AppI.add x fxs c.apps in {c with apps = apps}
+let add_app x fxs c = {c with apps = AppI.add x fxs c.apps}
 
 (* Helpers for working with rows/cols *)
 let extract_row = function Ty.Rec r -> Some r | _ -> None
@@ -50,7 +60,7 @@ let subst: (Span.t -> Name.t -> Ty.t) -> Ty.t -> Ty.t = fun f ->
   let rec go t = 
     let wrap ta = {t with a = ta} in
     match t.a with
-    | Lit _ | Meta _ | AMeta _ -> t
+    | Lit _ | Meta _ -> t
     | Var x -> f t.span x
     | Ptr (x, t) -> wrap (Ptr (x, go t))
     | Lbl (x, t) -> wrap (Ptr (x, go t))
@@ -75,7 +85,7 @@ let eapply ?m:(m=NameM.empty): Ty.t -> Meta.t NameM.t * Ty.t =
   let rec go m t = 
     let m, ta =
       match t.a with
-      | Lit _ | Meta _ | AMeta _ -> (m, t.a)
+      | Lit _ | Meta _ -> (m, t.a)
       | Var x when mem x m -> (m, Meta (find x m))
       | Var x -> let y = Meta.fresh () in (add x y m, Meta y)
       | Ptr (x, t) -> let m, t = go m t in (m, Ptr (x, t))
@@ -136,8 +146,10 @@ let unfold_row extract build: ctx -> 'a Ty.row -> ctx * 'a Ty.row =
   go
 
 (* Simplify a type so `unify` can understand it.
+
+   let root x := x = Uf.find x c.uf in
+   let stuck x := root x /\ ~ MetaM.mem x c.insts in
    forall let (c, r) := unfold c ty,
-     let stuck x := x = Uf.find x c.uf /\ ~ MetaM.mem x c.insts in
      let fix stuck_row r :=
        match r with
        | Nil | Closed _ -> True
@@ -147,27 +159,21 @@ let unfold_row extract build: ctx -> 'a Ty.row -> ctx * 'a Ty.row =
        end
      in
      match r with
-     | Meta x -> stuck x
      | App _ -> False
      | Rec r | Sum r -> stuck_row r
      | _ -> True
-     end *)
+     end
+*)
 let rec unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
   let open Ty in
   let wrap ta = at ~sp:ty.span ta in
   match ty.a with
-  (* Unfold metas to expose a non-Meta constructor at root, if possible *)
-  | Meta x ->
-      let c, x = find' x c in
-      (c, try MetaM.find x c.insts with Not_found -> wrap (Meta x))
-  (* Unfold row variables *)
-  | Rec r ->
-      let c, r = unfold_row extract_row build_row c r in
-      (c, wrap (Rec r))
-  | Sum r ->
-      let c, r = unfold_row extract_col build_col c r in
-      (c, wrap (Sum r))
-  (* Turn alias applications into AMetas *)
+  (* Root metas *)
+  | Meta x -> let c, x = find' x c in (c, wrap (Meta x))
+  (* Unfold row/col variables *)
+  | Rec r -> let c, r = unfold_row extract_row build_row c r in (c, wrap (Rec r))
+  | Sum r -> let c, r = unfold_row extract_col build_col c r in (c, wrap (Sum r))
+  (* Turn alias applications into Metas *)
   | App (f, ts) ->
       let rec extract_metas = function
         | [] -> Some []
@@ -182,7 +188,7 @@ let rec unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
        with
        (* If all ts are metas and App (f, ts) has already been assigned to a 
           meta, just return it *)
-       | Some x -> (c, wrap (AMeta x))
+       | Some x -> (c, wrap (Meta x))
        (* Otherwise... *)
        | None ->
            (* eapply f's definition + associate each argument with a fresh meta x *)
@@ -204,38 +210,125 @@ let rec unfold (c: ctx) (ty: Ty.t): ctx * Ty.t =
            (* Associate App (f, xs) with a fresh meta y *)
            let y = Meta.fresh () in
            let c = add_app y (f, xs) c in
-           (* Associate y with its unfolding and return AMeta y *)
+           (* Associate y with its unfolding and return Meta y *)
            let c = add_inst y ty c in
-           (c, wrap (AMeta y)))
+           (c, wrap (Meta y)))
   | _ -> c, ty
+
+(* Unfold metas to expose a non-Meta constructor at root, if possible,
+   and check if any coinductive hypotheses hold.
+
+   forall updated wants and haves as r,
+     match r with
+     | Some (Meta x) -> stuck x
+     | _ -> True
+     end
+*)
+and demeta (c: ctx) (want: Ty.t) (have: Ty.t): (ctx, ctx * Ty.t * Ty.t) either =
+  let open Ty in
+  let expand (t: Ty.t): Ty.t =
+    match t.a with
+    (* Should have root x thanks to `unfold`, so just need to lookup in insts *)
+    | Meta x ->
+        (try MetaM.find x c.insts
+         with Not_found -> at ~sp:t.span (Meta x))
+    | _ -> t
+  in
+  match want.a, have.a with
+  (* Should have root x /\ root y thanks to `unfold`.
+     Because there's no occurs check, metas have to be expanded carefully.
+
+     If
+       ?x -> F(?x)
+       ?y -> F(?y)
+     we want `unify` to show ?x ~ ?y but expanding right away would result in an
+     infinite loop:
+       F(?x) ~ F(?y) (* Recursion *)
+       ?x ~ ?y       (* unfold ?x and ?y *)
+       ?x ~ ?y       (* Incorrectly demeta ?x and ?y *)
+       F(?x) ~ F(?y) (* Recursion *)
+       .
+       .
+       .
+
+     To avoid that, we can ask unify to show F(?x) ~ F(?y) given the assumption
+     ?x ~ ?y:
+       F(?x) ~ F(?y) (* Recursion *)
+       ?x ~ ?y       (* unfold ?x and ?y *)
+       ?x ~ ?y       (* Assumption *)
+       OK
+
+     Also, we can't just assume ?x ~ ?y by unioning the two metas together.
+     Consider:
+       ?x -> F(?x) and
+       ?y -> F(F(?y)),
+     which have the same infinite expansions.
+
+     Unioning ?x ~ ?y and asking unify to show F(?x) ~ F(F(?y)) yields:
+       F(?x) ~ F(F(?y)) (* Recursion *)
+       ?x ~ F(?y)       (* unfold ?x *)
+       ?y ~ F(?y)       (* demeta ?x *)
+       F(F(?y)) ~ F(?y) (* Recursion *)
+       F(?y) ~ ?y       (* unfold ?y *)
+       F(?y) ~ ?y       (* demeta ?y *)
+       F(?y) ~ F(F(?y)) (* Recursion *)
+       .
+       .
+       .
+     which never terminates.
+
+     To avoid this, the equality hypotheses have to be stored in a separate UF
+     instance and checked here. If the current goal turns out to correspond to
+     an equality hypothesis, unification can end now and we don't call `unify`
+     with expanded metas.
+  *)
+  | Meta x, Meta y ->
+      (* Check if x and y are already equal under an existing hypothesis *)
+      (match rec_equal' x y c with
+       | c, true -> Left c
+       | c, false ->
+           (* If not, assume ?x ~ ?y and pass their expansions on to `unify` *)
+           let c = rec_union x y c in 
+           Right (c, expand want, expand have))
+  | _, _ -> Right (c, expand want, expand have)
 
 (* val unify : ctx -> Ty.t -> Ty.t -> ctx *)
 and unify c want have =
   let c, want = unfold c want in
   let c, have = unfold c have in
-  let open Ty in
-  match want.a, have.a, want, have with
-  (* If both stuck metas, add equality constraint *)
-  | Meta x, Meta y, _, _ -> union x y c
-  (* If 1 stuck meta, add instantiation *)
-  | Meta x, _, _, ty | _, Meta x, ty, _ -> {c with insts = MetaM.add x ty c.insts}
-  | Rec _, Rec _, _, _ -> raise Todo (* TODO *)
-  | Sum _, Sum _, _, _ -> raise Todo (* TODO *)
-  | App _, _, _, _ | _, App _, _, _ -> raise Todo
-  (* Straightforward recursive cases *)
-  | Lit s, Lit t, _, _ when Name.equal s t -> c
-  | Var x, Var y, _, _ when Name.equal x y -> c
-  | Ptr (x, s), Ptr (y, t), _, _ | Lbl (x, s), Lbl (y, t), _, _ ->
-      unify (unify c (at x) (at y)) s t
-  | Fun (ss, q), Fun (ts, r), _, _ ->
-      let open List in
-      if length ss <> length ts then
-        raise (Mismatch (c, want, have, Some (Printf.sprintf
-          "(former expects %d arguments while the latter expects %d)"
-          (length ss) (length ts))))
-      else
-        fold_left (fun c (s, t) -> unify c s t) (unify c q r) (combine ss ts)
-  | _ -> raise (Mismatch (c, want, have, None))
+  match demeta c want have with
+  | Left c -> c
+  | Right (c, want, have) -> 
+      let open Ty in
+      match want.a, have.a, want, have with
+      (* Metas should be stuck thanks to unfold.
+         If both stuck, add equality constraint.
+         Thanks to demeta, the two metas can't be equal under some hypothesis thanks to demeta. *)
+      | Meta x, Meta y, _, _ -> union x y c
+      (* If 1 stuck, add instantiation *)
+      | Meta x, _, _, ty | _, Meta x, ty, _ -> add_inst x ty c
+      (* Rec and Sum should be stuck thanks to unfold *)
+      | Rec _, Rec _, _, _ -> raise Todo (* TODO *)
+      | Sum _, Sum _, _, _ -> raise Todo (* TODO *)
+      (* App should be impossible thanks to `unfold` *)
+      | App _, _, _, _ | _, App _, _, _ -> assert false
+      (* Straightforward recursive cases *)
+      | Lit s, Lit t, _, _ when Name.equal s t -> c
+      | Var x, Var y, _, _ when Name.equal x y -> c
+      | Ptr (x, s), Ptr (y, t), _, _ | Lbl (x, s), Lbl (y, t), _, _ ->
+          unify (unify c (at x) (at y)) s t
+      | Fun (ss, q), Fun (ts, r), _, _ ->
+          let open List in
+          if length ss <> length ts then
+            raise (Mismatch (c, want, have, Some (Printf.sprintf
+              "(former expects %d arguments while the latter expects %d)"
+              (length ss) (length ts))))
+          else
+            fold_left
+              (fun c (s, t) -> unify c s t) 
+              (unify c q r)
+              (combine ss ts)
+      | _ -> raise (Mismatch (c, want, have, None))
 
 (* val check : ctx -> Expr.t -> Ty.t -> ctx *)
 let rec check c expr ty = unify c ty (infer c expr)

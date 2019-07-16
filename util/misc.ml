@@ -80,3 +80,5 @@ module Option = struct
     | Some x -> f x
     | None as m -> m
 end
+
+type ('a, 'b) either = Left of 'a | Right of 'b

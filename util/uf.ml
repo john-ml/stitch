@@ -20,3 +20,10 @@ let union x y m =
   let m, x = find' x m in
   let m, y = find' y m in
   if Meta.equal x y then m else MetaM.add x y m
+
+let equal x y m = (find x m = find y m)
+
+let equal' x y m =
+  let m, x = find' x m in
+  let m, y = find' y m in
+  (m, x = y)
