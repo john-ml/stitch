@@ -57,22 +57,23 @@ type integer = i32
 type string = *i8 # pointer
 type point = (f64, f64) # tuple
 type person = {age i32, height f32} # record
-type int_opt = <none unit, some int> # sum / variant
+type int_opt = None | Some(int) # sum / variant
 ```
 
 Type aliases can be recursive and can take arguments:
 
 ```bash
-type comparator(A) = (A, A) -> bool # function pointer
-type either(A, B) = <left A, right B>
-type list(A) = *<nil (), cons (A, list(A))>
+type comparator(a) = (a, a) -> bool # function pointer
+type either(a, b) = Left(a) | Right(b)
+type list(a) = *(Nil | Cons(a, list(b)))
 ```
 
-`@` is used to create values of sum types:
+Only sum type constructors can start with capital letters.
+Constructing values of sum types looks like a function call:
 
 ```bash
-checked_div(a i32, b i32) <none (), some i32> =
-  if b == 0 then none@() else some @ a/b
+checked_div(a i32, b i32) None | Some i32 =
+  if b == 0 then None else Some(a / b)
 ```
 
 ## Control flow
@@ -82,18 +83,19 @@ checked_div(a i32, b i32) <none (), some i32> =
 Case expressions can be used to branch on sum types:
 
 ```bash
-unwrap(x <none unit, some i32>, default i32) i32 =
+type option(a) = None | Some(a)
+unwrap(x option(i32), default i32) i32 =
   case x {
-    none _ -> default,
-    some i -> i
+    None -> default,
+    Some(i) -> i
   }
 
 sum(xs list(i32)) i32 =
   # Not full pattern matching: only allowed to branch on sum type tag and
   # destructure a tuple
   case *x {
-    nil _ -> 0,
-    some (hd, tl) -> hd + sum(tl)
+    Nil -> 0,
+    Cons(hd, tl) -> hd + sum(tl)
   }
 ```
 
@@ -175,19 +177,19 @@ f(x i32, default i32) i32 =
 Labels can be passed as parameters to functions.
 For example, the following
 definition of `find` will return immediately once an item
-is found rather than bubbling the value `true` all the way
+is found rather than bubbling the value `True` all the way
 back up the call stack:
 
 ```bash
 find(x i32, xs list(i32)) bool =
   # No `..` => computation is suspended
-  find_helper(x, xs, ret: true)
+  find_helper(x, xs, ret: True)
 
 # `success` is a label representing the suspended computation of a bool
 find_helper(x, xs, success ..bool) =
   case *xs {
-    nil _ -> false,
-    cons (h, t) ->
+    Nil -> False,
+    Cons(h, t) ->
       if x == h then
         # Return to `ret` in the definition of find
         # As before, a label can only be evaluated in tail position
@@ -204,8 +206,8 @@ to be written as a normal loop:
 find(x i32, xs list(i32)) bool =
   ..rec:
     case *xs {
-      nil _ -> false,
-      cons (h, t) -> x == h || (xs := t; ..rec)
+      Nil -> False,
+      Cons(h, t) -> x == h || (xs := t; ..rec)
     }
 ```
 )
@@ -221,18 +223,18 @@ Note:
 As an example of all these:
 
 ```bash
-categorize[A, B, C, D](
+categorize[a, b, c, d](
   i i32,
-  s {small <left ..A, right ..A>, medium ..B},
-  large ..C,
-  fail ..D
+  s {small (Left(..a) | Right(..a)), medium ..b},
+  large ..c,
+  fail ..d
 ) =
   when {
     i < 0 -> ..fail,
     i < 3 -> 
       case s.small {
-        left k -> ..k,
-        right k -> ..k
+        Left(k) -> ..k,
+        Right(k) -> ..k
       },
     i < 6 -> ..s.medium,
     else -> ..s.large
@@ -255,10 +257,10 @@ upwards.
 This means rejecting some valid programs, like the following:
 
 ```bash
-choose[A](p bool, l1 ..A, l2 ..A) ..A =
+choose[a](p bool, l1 ..a, l2 ..a) ..a =
   if p then l1 else l2
 
-f[A](ok ..A) ..A = choose(true, ok, not_ok: e)
+f[a](ok ..a) ..a = choose(True, ok, not_ok: e)
 ```
 
 `ok`'s lifetime is larger than that of `f`'s stack
@@ -277,9 +279,9 @@ Toplevel function definitions can be polymorphic.
 Polymorphic type variables can be explicitly declared with `[]`:
 
 ```bash
-id[A](x A) A = x
+id[a](x a) a = x
 
-fst[A, B](p {x A, y B}) A = p.x
+fst[a, b](p {x a, y b}) a = p.x
 ```
 
 Polymorphic functions can be explicitly instantiated with `@[]`:
@@ -301,22 +303,22 @@ Without manually annotating the previous example, the inference
 algorithm would yield the following annotation for the definition of `fst`:
 
 ```bash
-fst[A, R](p {x A; R}) A = p.x
+fst[a, r](p {x a; r}) a = p.x
 ```
 
-`R` is a _row_ representing any other fields that might be in the input record `p`.
+`r` is a _row_ representing any other fields that might be in the input record `p`.
 Thus `fst` can be called with any record that contains a field named `x`.
 
 Dually, running the inference algorithm on
 
 ```bash
-inl(x) = left@x
+inl(x) = Left(x)
 ```
 
 yields
 
 ```bash
-inl[A, C](x A) <left A; C> = left@x
+inl[a, c](x a) (Left(a) + c) = Left(x)
 ```
 
 `C` is a _column_ representing any other options that could be in the return
@@ -332,15 +334,15 @@ considered equivalent, because they all have the same 'infinite expansions':
 
 ```bash
 # Straightforward recursion
-type list1(A) = *<nil {}, cons {hd A, tl list1(A)}>
+type list1(a) = *(Nil | Cons({hd a, tl list1(a)}))
 # Straightforward recursion, but a different type alias
-type list2(A) = *<nil {}, cons {hd A, tl list2(A)}>
+type list2(a) = *(Nil | Cons({hd a, tl list2(a)}))
 # Recursion through a helper type
-type opt(A) = *<nil {}, cons A>
-type list3(A) = opt({hd A, tl list3(A)})
+type opt(a) = *(Nil | Cons(a))
+type list3(a) = opt({hd a, tl list3(a)})
 # Mutual bundle resulting in the same infinite expansion
-type list4(A) = *<nil {}, cons {hd A, tl list4(A)}>
-type list5(A) = *<nil {}, cons {hd A, tl list3(A)}>
+type list4(a) = *(Nil | Cons({hd a, tl list5(a)}))
+type list5(a) = *(Nil | Cons({hd a, tl list4(a)}))
 ```
 
 In exchange, we gain the ability to write programs over recursive types
@@ -350,10 +352,10 @@ evaluates simple expressions over boolean and integer values:
 ```bash
 eval_int_exp(e) =
   case *e {
-    lit i -> i,
-    plus (a, b) -> eval_int_exp(a) + eval_int_exp(b),
-    mult (a, b) -> eval_int_exp(a) * eval_int_exp(b),
-    ifte (p, a, b) ->
+    Lit(i) -> i,
+    Plus(a, b) -> eval_int_exp(a) + eval_int_exp(b),
+    Mult(a, b) -> eval_int_exp(a) * eval_int_exp(b),
+    Ifte(p, a, b) ->
       if eval_bool_exp(p) then
         eval_int_exp(a)
       else
@@ -362,10 +364,10 @@ eval_int_exp(e) =
 
 eval_bool_exp(e) =
   case *e {
-    lit b -> b,
-    and (a, b) -> eval_bool_exp(a) && eval_int_exp(b),
-    not a -> !eval_bool_exp(a),
-    leq (a, b) -> eval_int_exp(a) <= eval_int_exp(b)
+    Lit(b) -> b,
+    And(a, b) -> eval_bool_exp(a) && eval_int_exp(b),
+    Not(a) -> !eval_bool_exp(a),
+    Leq(a, b) -> eval_int_exp(a) <= eval_int_exp(b)
   }
 ```
 
@@ -373,9 +375,19 @@ Inference will automatically produce the types of the ASTs being traversed
 by these two functions:
 
 ```bash
-type t1 = *<lit i32, plus (t1, t1), mult (t1, t1), ifte (t2, t1, t1)>
+type t1 = *
+  ( Lit(i32)
+  | Plus(t1, t1)
+  | Mult(t1, t1)
+  | Ifte(t2, t1, t1)
+  )
 
-type t2 = *<lit bool, and (t2, t2), not t2, leq (t1, t1)>
+type t2 = *
+  ( Lit(bool)
+  | Plus(t2, t2)
+  | Not(t2)
+  | Leq(t1, t1)
+  )
 
 eval_int_exp(e t1) i32 = ...
 
@@ -394,11 +406,11 @@ They're mainly for operator overloading. Some examples:
 
 ```bash
 # Equality (==)
-trait A eq {__eq__ (A, A) -> bool}
+trait a eq {__eq__ (a, a) -> bool}
 # Inequality (<=)
-trait A ord {__leq__ (A, A) -> bool}
+trait a ord {__leq__ (a, a) -> bool}
 # Truthiness
-trait A bool {__bool__ A -> bool}
+trait a bool {__bool__ a -> bool}
 ```
 
 `bool` allows for overloading of `if .. then .. else`
@@ -412,16 +424,16 @@ Instances can be declared with `impl`, and can depend on other instances:
 
 ```bash
 # A linked list
-type list(A) = *<nil {}, cons {hd A, tl list(A)}>
+type list(a) = *(Nil | Cons({hd a, tl list(a)}))
 
-# If A is comparable, list(A) is too
-impl(A eq) list(A) eq {
+# If a is comparable, list(a) is too
+impl[a](a eq) list(a) eq {
   __eq__(xs, ys) =
     case *xs {
-      nil _ -> case *ys {nil _ -> true, _ -> false},
-      cons (x, xs) -> case *ys {
-        nil _ -> false,
-        cons (y, ys) -> x == y && xs == ys
+      Nil -> case *ys {Nil -> True, _ -> False},
+      Cons(x, xs) -> case *ys {
+        Nil -> False,
+        Cons(y, ys) -> x == y && xs == ys
       }
     }
 }
@@ -472,18 +484,18 @@ bad4(p **i32) i32 =
 `new` and `del` can be used to allocate and deallocate heap memory:
 
 ```bash
-type list(A) = *<nil {}, cons {hd A, tl list(A)}>
+type list(a) = *(Nil | Cons({hd a, tl list(a)}))
 
 countdown(n i32) list(i32) =
   if n < 0 then
-    new nil@{}
+    new Nil
   else
-    new cons@{hd = n, tl = countdown(n - 1)}
+    new Cons({hd = n, tl = countdown(n - 1)})
 
-del_list(del_elt (A) -> {}, l list(A)) =
+del_list(del_elt (a) -> {}, l list(a)) =
   case *l {
-    nil _ -> del l,
-    cons l ->
+    Nil -> del l,
+    Cons(l) ->
       _ = del_elt(l.hd);
       _ = del_list(l.tl);
       del l
@@ -493,21 +505,21 @@ del_list(del_elt (A) -> {}, l list(A)) =
 If they were functions, their types would be:
 
 ```bash
-new [A] A -> *A
-del [A] *A -> {}
+new [a] a -> *a
+del [a] *a -> {}
 ```
 
 `new`'s type encodes the fact that heap-allocation
 is the only way to comfortably allow pointers to escape
 upwards: it's impossible to write a terminating
-function of type `[A] A -> *A` without `new`.
+function of type `[a] a -> *a` without `new`.
 
 These types also illustrate how weak the safety checks
 for pointers are:
-- If `*A` corresponds to heap-allocated memory, there's no
+- If `*a` corresponds to heap-allocated memory, there's no
   guarantee that it holds a valid address and nothing forces
   you to delete it when no longer useful
-- If `*A` corresponds to stack-allocated memory, nothing
+- If `*a` corresponds to stack-allocated memory, nothing
   stops you from trying to delete it
 
 ### Defer
@@ -633,8 +645,8 @@ sums(xs) =
   res = 0;
   ..rec:
     case *xs {
-      nil _ -> res,
-      cons xs ->
+      Nil -> res,
+      Cons(xs) ->
         res := res + sum(countdown(xs.hd) defer del_alt);
         xs = xs.tl;
         ..rec
@@ -648,8 +660,8 @@ sums(xs) =
   res = 0;
   ..rec:
     case *xs {
-      nil _ -> res,
-      cons xs ->
+      Nil -> res,
+      Cons(xs) ->
         tmp = countdown(xs.hd);
         res := res + sum(tmp);
         xs = xs.tl;
@@ -667,8 +679,8 @@ sums(p, xs) =
   res = 0;
   ..rec:
     case *xs {
-      nil _ -> res,
-      cons xs ->
+      Nil -> res,
+      Cons(xs) ->
         res := res + sum(countdown(xs.hd) defer del_alt);
         xs = xs.tl;
         if p then ..rec else 1
@@ -682,8 +694,8 @@ sums(p, xs) =
   res = 0;
   ..rec:
     case *xs {
-      nil _ -> res,
-      cons xs ->
+      Nil -> res,
+      Cons(xs) ->
         tmp = countdown(xs.hd);
         res := res + sum(tmp);
         xs = xs.tl;
@@ -729,15 +741,15 @@ are exhaustive. Thus running the inference algorithm on
 ```bash
 f(x) =
   case x {
-    tag1 _ -> true, 
-    tag2 _ -> false
+    Tag1 _ -> True, 
+    Tag2 _ -> False
   }
 ```
 
 yields
 
 ```bash
-f[A, B](x <tag1 A, tag2 B>) bool = ...
+f[a, b](x (Tag1 a | Tag2 B>) bool = ...
 ```
 
 The algorithm can't infer a column type because that would imply the `case`
@@ -748,11 +760,11 @@ type---it's possible for a `case` expression with a catch-all pattern
 to be polymorphic in additional variant options while remaining exhaustive:
 
 ```bash
-f[A, B, C](x <tag1 A, tag2 B; C>) bool =
+f[a, b, c](x (Tag1 a | Tag2 b + c>) bool =
   case x {
-    tag1 _ -> true,
-    tag2 _ -> false,
-    _ -> true
+    Tag1 _ -> True,
+    Tag2 _ -> False,
+    _ -> True
   }
 ```
 
@@ -764,27 +776,27 @@ For example,
 ```bash
 zeros_like(xs) =
   case *xs {
-    nil _ -> new nil@{}
-    cons xs -> new cons @ {hd = 0, tl = zeros_like(xs.tl)}
+    Nil -> new Nil
+    Cons(xs) -> new Cons({hd = 0, tl = zeros_like(xs.tl)})
   }
 ```
 
 yields the constraints
 
 ```bash
-type T = *<nil ?A, cons {tl T; ?R1}>
-type R = *<nil {}, cons {hd int, tl R}> # This should have failed occurs check
-zeros_like(xs T) R = ...
+type t = *(Nil, Cons({tl t; ?r1}))
+type r = *(Nil, Cons({hd int, tl r})) # this should have failed occurs check
+zeros_like(xs t) r = ...
 ```
 
-where `A` and `R1` are metavariables.
+where `r1` is a metavariable.
 Then, when generalizing, all type aliases get extra type parameters corresponding to
 each metavariable:
 
 ```bash
-type T(A, R1) = *<nil A, cons {tl T; R1}>
-type R = *<nil {}, cons {hd int, tl R}>
-zeros_like[A, R1](xs T(A, R1)) R = ...
+type t(r1) = *(Nil | Cons({tl t; r1}))
+type r = *(Nil | Cons({hd int, tl r}))
+zeros_like[r1](xs t(r1)) r = ...
 ```
 
 Or, on a simplified version of expression evaluator,
@@ -792,9 +804,9 @@ Or, on a simplified version of expression evaluator,
 ```bash
 eval_int_exp(e) =
   case *e {
-    lit i -> i,
-    shear e -> eval_int_exp(e.a) * eval_int_exp(e.b) + eval_int_exp(e.c),
-    ifte e ->
+    Lit(i) -> i,
+    Arith(e) -> eval_int_exp(e.a) * eval_int_exp(e.b) + eval_int_exp(e.c),
+    Ifte(e) ->
       if eval_bool_exp(e.p) then
         eval_int_exp(e.a)
       else
@@ -803,56 +815,60 @@ eval_int_exp(e) =
 
 eval_bool_exp(e) =
   case *e {
-    lit b -> b,
-    nand e -> !(eval_bool_exp(e.a) && eval_int_exp(e.b)),
-    leq e -> eval_int_exp(e.a) <= eval_int_exp(e.b)
+    Lit(b) -> b,
+    Nand(e) -> !(eval_bool_exp(e.a) && eval_int_exp(e.b)),
+    Leq(e) -> eval_int_exp(e.a) <= eval_int_exp(e.b)
   }
 ```
 
 we get the constraints
 
 ```bash
-type S =
-  *<lit i32,
-    shear {a S, b S, c S; ?R1},
-    ifte {p T, a T, b T; ?R2}>
+type s = *
+  ( Lit(i32)
+  | Arith({a s, b s, c s; ?r1})
+  | Ifte({p t, a t, b t; ?r2})
+  )
 
-type T =
-  *<lit bool,
-    nand {a T, b T; ?R3},
-    leq {a S, b S; ?R4}>
+type t = *
+  ( Lit(bool)
+  | Nand({a t, b t; ?r3})
+  | Leq({a s, b s; ?r4})
+  )
 
-eval_int_exp(e S) i32 = ...
+eval_int_exp(e s) i32 = ...
 
-eval_bool_exp(e T) bool = ...
+eval_bool_exp(e t) bool = ...
 ```
 
 which, after closing over all metavariables in the definitions
-for `S` and `T` and generalizing `eval_int_exp` and `eval_bool_exp`, yields
+for `s` and `t` and generalizing `eval_int_exp` and `eval_bool_exp`, yields
 
 ```bash
-type S(R1, R2, R3, R4) =
-  *<lit i32,
-    shear {a S(R1, R2, R3, R4), b S(R1, R2, R3, R4), c S(R1, R2, R3, R4); R1},
-    ifte {p T(R1, R2, R3, R4), a T(R1, R2, R3, R4), b T(R1, R2, R3, R4); R2}>
+type s(r1, r2, r3, r4) = *
+  ( Lit(i32)
+  | Arith({a s(r1, r2, r3, r4), b s(r1, r2, r3, r4), c s(r1, r2, r3, r4); r1})
+  | Ifte({p t(r1, r2, r3, r4), a t(r1, r2, r3, r4), b t(r1, r2, r3, r4); r2})
+  )
 
-type T(R1, R2, R3, R4) =
-  *<lit bool,
-    nand {a T(R1, R2, R3, R4), b T(R1, R2, R3, R4); R3},
-    leq {a S(R1, R2, R3, R4), b S(R1, R2, R3, R4); R4}>
+type t(r1, r2, r3, r4) = *
+  ( Lit(bool)
+  | Nand({a t(r1, r2, r3, r4), b t(r1, r2, r3, r4); r3})
+  | Leq({a s(r1, r2, r3, r4), b s(r1, r2, r3, r4); r4})
+  )
 
-eval_int_exp[R1, R2, R3, R4](e S(R1, R2, R3, R4)) i32 = ...
+eval_int_exp[r1, r2, r3, r4](e s(r1, r2, r3, r4)) i32 = ...
 
-eval_bool_exp[R1, R2, R3, R4](e T(R1, R2, R3, R4)) bool = ...
+eval_bool_exp[r1, r2, r3, r4](e t(r1, r2, r3, r4)) bool = ...
 ```
 
 Eliding occurs check doesn't break anything by itself. It allows bizarre things like:
 
 ```bash
-type T(R) = T(R) -> R
-omega[R](f T(R)) R = f(f)
+type T(r) = T(r) -> r
+omega[r](f T(r)) r = f(f)
 
-bottom[A]() A = omega(omega)
+bottom[a]() a = omega(omega)
 ```
 
 but they can be ruled out by requiring that every recursive invocation of a type
