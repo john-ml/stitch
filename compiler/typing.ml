@@ -72,6 +72,7 @@ let build_col r = Ty.Sum r
 
 exception Unbound of Span.t * Name.t
 exception Mismatch of Ctx.t * Ty.t * Ty.t * string option
+exception RowDup of Ctx.t * Name.t * Ty.t
 
 let subst: (Span.t -> Name.t -> Ty.t) -> Ty.t -> Ty.t = fun f ->
   let open Ty in
@@ -170,18 +171,18 @@ let unfold_row extract build: 'a Ty.row -> Ctx.t -> Ctx.t * 'a Ty.row =
                  (add_inst x (at ~sp:t.span (build r)) c, r)
              | _ -> assert false
          with Not_found -> (c, Open x))
-    | Cons (xts, r) ->
+    | Cons (xts, r) as row ->
         (* Recursively unfold nested rows *)
         let c, r = go r c in
         let xtsr =
           (* Collapse Cons (xts, Cons (yts, r)) -> Cons (xts ∪ yts, r) *)
           match r with
           | Cons (yts, r) ->
-              let join _ mss mts =
+              let join x mss mts =
                 match mss, mts with
                 | None, None -> None
                 | Some ts, None | None, Some ts -> Some ts
-                | Some _, Some _ -> assert false
+                | Some _, Some _ -> raise (RowDup (c, x, at (build row)))
               in
               Cons (NameM.merge join xts yts, r)
           | _ -> Cons (xts, r)

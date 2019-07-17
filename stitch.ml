@@ -76,16 +76,23 @@ let _ =
   let p, _q, r, _s = Meta.(fresh (), fresh (), fresh (), fresh ()) in
   let x, y, z, w = Meta.(fresh (), fresh (), fresh (), fresh ()) in
   let dump ~succeeds k =
+    let failed () = if succeeds then failwith "Shouldn't have failed" else () in
     try
       print_endline (Ctx.show (k empty));
       if not succeeds then failwith "Shouldn't have succeeded" else ()
-    with Mismatch (c, want, have, mmsg) ->
+    with
+    | Mismatch (c, want, have, mmsg) ->
       print_endline (Printf.sprintf
         "Expected %s, got %s%s. Context: %s"
         (Ty.show want) (Ty.show have)
         (match mmsg with None -> "" | Some msg -> " ("^msg^")")
         (Ctx.show c));
-      if succeeds then failwith "Shouldn't have failed" else ()
+      failed ()
+    | RowDup (c, x, t) ->
+      print_endline (Printf.sprintf
+        "Field %s is duplicated in %s. Context: %s"
+        (Name.show x) (Ty.show t) (Ctx.show c));
+      failed ()
   in
   let f t = at (Ptr (Meta p, t)) in
   let mx, my, mz, mw = at (Meta x), at (Meta y), at (Meta z), at (Meta w) in
@@ -164,4 +171,12 @@ let _ =
          (at (Rec (Cons (NameM.singleton idy int, Open w))))
     |> unify
          (at (Rec (Cons (NameM.singleton idz int, Open r))))
-         (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Open w)))))
+         (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Open w)))));
+  (* {; ?r} ~ {x int} ==> {x int; ?r} ~ ?y *)
+  dump ~succeeds:false (fun c -> c
+    |> unify 
+         (at (Rec (Cons (NameM.empty, Open r))))
+         (at (Rec (Cons (NameM.singleton idx int, Nil))))
+    |> unify
+         (at (Rec (Cons (NameM.singleton idx int, Open r))))
+         (at (Meta y)))
