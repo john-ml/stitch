@@ -73,75 +73,87 @@ let _ =
     ; apps = AppI.empty
     }
   in
-  let p, _q, _r, _s = Meta.(fresh (), fresh (), fresh (), fresh ()) in
+  let p, _q, r, _s = Meta.(fresh (), fresh (), fresh (), fresh ()) in
   let x, y, z, w = Meta.(fresh (), fresh (), fresh (), fresh ()) in
-  let dump k =
-    try print_endline (Ctx.show (k empty))
+  let dump should_succeed k =
+    try
+      print_endline (Ctx.show (k empty));
+      if not should_succeed then failwith "Shouldn't have succeeded" else ()
     with Mismatch (c, want, have, mmsg) ->
       print_endline (Printf.sprintf
         "Expected %s but got %s%s. Context: %s"
         (Ty.show want) (Ty.show have)
         (match mmsg with None -> "" | Some msg -> " ("^msg^")")
-        (Ctx.show c))
+        (Ctx.show c));
+      if should_succeed then failwith "Shouldn't have failed" else ()
   in
   let f t = at (Ptr (Meta p, t)) in
   let mx, my, mz, mw = at (Meta x), at (Meta y), at (Meta z), at (Meta w) in
   (* μ x. *x ~ μ y. *y *)
-  dump (fun c -> c
+  dump true (fun c -> c
     |> unify mx (f mx)
     |> unify my (f my)
     |> unify mx my);
   (* μ x. *x ~ μ y. **y *)
-  dump (fun c -> c
+  dump true (fun c -> c
     |> unify mx (f mx)
     |> unify my (f (f my))
     |> unify mx my);
   (* μ x. f^10(x) ~ μ y. f^11(y) *)
-  dump (fun c -> c
+  dump true (fun c -> c
     |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
     |> unify my (f (f (f (f (f (f (f (f (f (f (f my)))))))))))
     |> unify mx my);
   (* ?x = f(?y), ?y = f(?x), ?z = f(?z) ==> ?x ~ ?z *)
-  dump (fun c -> c
+  dump true (fun c -> c
     |> unify mx (f my)
     |> unify my (f mz)
     |> unify mz (f mz)
     |> unify mx mz);
   (* ?x = f(?y), ?y = f(?y) ==> ?x ~ ?y *)
-  dump (fun c -> c
+  dump true (fun c -> c
     |> unify mx (f my)
     |> unify my (f my)
     |> unify mx my);
   (* ?x = f(f(?x)) ==> ?x ~ f(?x) *)
-  dump (fun c -> c
+  dump true (fun c -> c
     |> unify mx (f (f mx))
     |> unify mx (f mx));
   (* x /~ y *)
-  dump (fun c -> c |> unify (at (Var (id "x"))) (at (Var (id "y"))));
-  dump (fun c -> c
+  dump false (fun c -> c |> unify (at (Var (id "x"))) (at (Var (id "y"))));
+  (* ?x ~ ?y, ?z ~ ?w, ?x ~ ?w *)
+  dump true (fun c -> c
     |> unify mx my
     |> unify mz mw
     |> unify mx mw);
-  (* μ x. f^10(x) ~ μ y. f^11(z) *)
-  dump (fun c -> c
+  (* μ x. f^10(x) /~ μ y. f^11(z) *)
+  dump false (fun c -> c
     |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
     |> unify my (f (f (f (f (f (f (f (f (f (f (f (at (Var (id "z"))))))))))))))
     |> unify mx my);
   let int = at (Lit (id "int")) in
-  let idx, idy = id "x", id "y" in
+  let idx, idy, idz = id "x", id "y", id "z" in
   (* {x int} /~ {y int} *)
-  dump (unify 
+  dump false (unify
     (at (Rec (Cons (NameM.singleton idx int, Nil))))
     (at (Rec (Cons (NameM.singleton idy int, Nil)))));
   (* {x int} ~ {x int} *)
-  dump (unify 
+  dump true (unify 
     (at (Rec (Cons (NameM.singleton idx int, Nil))))
     (at (Rec (Cons (NameM.singleton idx int, Nil)))));
   (* {x int; ?z} ~ {x int; ?w} *)
-  dump (unify 
+  dump true (unify 
     (at (Rec (Cons (NameM.singleton idx int, Open z))))
     (at (Rec (Cons (NameM.singleton idx int, Open w)))));
   (* {x int; ?z} ~ {y int; ?w} *)
-  dump (unify 
+  dump true (unify 
     (at (Rec (Cons (NameM.singleton idx int, Open z))))
-    (at (Rec (Cons (NameM.singleton idy int, Open w)))))
+    (at (Rec (Cons (NameM.singleton idy int, Open w)))));
+  (* {x int; ?r} ~ {y int; ?w} ==> {z int; ?r} ~ {y int, z int} *)
+  dump true (fun c -> c
+    |> unify 
+         (at (Rec (Cons (NameM.singleton idx int, Open r))))
+         (at (Rec (Cons (NameM.singleton idy int, Open w))))
+    |> unify
+         (at (Rec (Cons (NameM.singleton idz int, Open r))))
+         (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Nil)))))

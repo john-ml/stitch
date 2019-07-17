@@ -385,15 +385,15 @@ and unify ?verbose:(verbose=false) want have c =
       in
       (* Unify open rows/columns xts ~ yts, where x and y are metas available
          for instantiation. stuck x /\ stuck y thanks to `unfold`.
-         The `unify` and `build` arguments are used to make the function work
-         for both rows and columns. *)
-      let unify_open unify build x y xts yts c =
-        (* Collect:
+         The `unify` argument is used to make the function work for both rows
+         and columns.
+         
+         Returns:
            - An updated c yielded by unifying all types corresponding to
              field names present in both xts and yts
            - `left : row/col NameM.t`: field names & types present only in xts
-           - `right : row/col NameM.t`: field names & types present only in yts
-        *)
+           - `right : row/col NameM.t`: field names & types present only in yts *)
+      let unify_open unify xts yts c =
         let xyts =
           NameM.merge
             (fun x ms mt -> match ms, mt with
@@ -403,29 +403,92 @@ and unify ?verbose:(verbose=false) want have c =
              | None, None -> None)
             xts yts
         in
-        let c, lefts, rights =
-          NameM.fold
-            (fun _ res (c, lefts, rights) -> match res with
-             | Right (s, t) -> (unify s t c, lefts, rights)
-             | Left (Left (x, s)) -> (c, NameM.add x s lefts, rights)
-             | Left (Right (x, t)) -> (c, lefts, NameM.add x t rights))
-            xyts (c, NameM.empty, NameM.empty)
+        NameM.fold
+          (fun _ res (c, lefts, rights) -> match res with
+           | Right (s, t) -> (unify s t c, lefts, rights)
+           | Left (Left (x, s)) -> (c, NameM.add x s lefts, rights)
+           | Left (Right (x, t)) -> (c, lefts, NameM.add x t rights))
+          xyts (c, NameM.empty, NameM.empty)
+      in
+      let unify_rows (type a) (unify: a -> a -> _) (build: a Ty.row -> _) l r c =
+        let simple_mismatch (mx: Name.t option) (my: Name.t option) c =
+          let show = function
+            | Some x -> "row " ^ Name.show x
+            | None -> "empty row" 
+          in
+          raise (Mismatch (c, want, have, Some (Printf.sprintf
+            "expected %s but got row %s" (show mx) (show my))))
         in
-        (* Generate fresh metas x' and y', instantiate
-             x -> rights; x'
-             y -> lefts; y',
-           and add the constraint x' ~ y'.
-           (as an optimization, just union x and y if rights/lefts are
-            empty)
+        (* x_fields; ?x ~ y_fields; r where
+           - r is not a meta
+           - xts contains fields in x_fields and not y_fields
+           - yts contains fields in y_fields and not x_fields
+           - which_missing indicates (in english) whether `want` ("former") or
+             `have` ("latter") is the one that is missing fields (for error
+             messages)
         *)
-        let add_inst' x row c =
-          if NameM.is_empty row then (c, x) else 
-          let x' = Meta.fresh () in
-          (add_inst x (at (build (Cons (row, Open x')))) c, x')
+        let one_open
+          (xts: a NameM.t) (x: Meta.t) (yts: a NameM.t) (r: a Ty.row)
+          (which_missing: string) (c: Ctx.t): Ctx.t
+        =
+          match () with
+          (* r is not a meta, so if there are extra xts, the two record types
+             can't be unified *)
+          | _ when not (NameM.is_empty xts) ->
+              let keys m = List.map fst (NameM.bindings m) in
+              let show = Show.show_set NameS.elements Name.show in
+              raise (Mismatch (c, want, have, Some (Printf.sprintf
+                "%s is missing field/variant(s) %s"
+                which_missing (show (NameS.of_list (keys xts))))))
+          (* xts and yts match perfectly (there are no extra yts) *)
+          | _ when NameM.is_empty yts -> add_inst x (at (build r)) c
+          (* There are extra yts *)
+          | _ -> add_inst x (at (build (Cons (yts, r)))) c
         in
-        let c, x' = add_inst' x rights c in
-        let c, y' = add_inst' y lefts c in
-        union x' y' c
+        match l, r with
+        (* `unify_closed` for matching two closed rows/cols *)
+        | Cons (xts, Nil), Cons (yts, Nil) -> unify_closed unify xts yts c
+        | Cons (xts, Closed x), Cons (yts, Closed y) ->
+            if not (Name.equal x y) then
+              simple_mismatch (Some x) (Some y) c
+            else
+              unify_closed unify xts yts c
+        (* stuck x /\ stuck y thanks to `unfold`.
+           Thus, if the metas are equal, xts and yts must match exactly *)
+        | Cons (xts, Open x), Cons (yts, Open y) when Meta.equal x y ->
+            unify_closed unify xts yts c
+        (* Rigid row variables never unify with empty rows *)
+        | Cons (_, Nil), Cons (_, Closed x) -> simple_mismatch None (Some x) c
+        | Cons (_, Closed x), Cons (_, Nil) -> simple_mismatch (Some x) None c
+        (* 2 open rows *)
+        | Cons (xts, Open x), Cons (yts, Open y) ->
+            (* Generate fresh metas x' and y', instantiate
+                 x -> rights; x'
+                 y -> lefts; y',
+               and add the constraint x' ~ y'.
+               (As an optimization, only generate the fresh meta & instantiate
+               if left/right is nonempty.)
+            *)
+            let c, lefts, rights = unify_open unify xts yts c in
+            let add_inst' x row c =
+              if NameM.is_empty row then (c, x) else 
+              let x' = Meta.fresh () in
+              (add_inst x (at (build (Cons (row, Open x')))) c, x')
+            in
+            let c, x' = add_inst' x rights c in
+            let c, y' = add_inst' y lefts c in
+            union x' y' c
+        (* 1 open row *)
+        | Cons (xts, Open x), Cons (yts, r) ->
+            let c, xts, yts = unify_open unify xts yts c in
+            one_open xts x yts r "latter" c
+        | Cons (xts, r), Cons (yts, Open y) ->
+            let c, xts, yts = unify_open unify xts yts c in
+            one_open yts y xts r "former" c
+        (* Nested Cons should be impossible thanks to `unfold` *)
+        | Cons (_, Cons _), Cons (_, Cons _)
+        (* Nil | Closed _ | Open _ should be impossible (kind error) *)
+        | _, _ -> assert false
       in
       match want.a, have.a, want, have with
       (* All metas should be stuck thanks to `unfold` and `demeta`.
@@ -433,26 +496,9 @@ and unify ?verbose:(verbose=false) want have c =
       | Meta x, Meta y, _, _ -> union x y c
       (* If 1 meta, add instantiation *)
       | Meta x, _, _, ty | _, Meta x, ty, _ -> add_inst x ty c
-      (* Rec and Sum should be stuck thanks to `unfold`.
-         `unify_closed` for Cons cases with closed rows/cols *)
-      | Rec (Cons (xts, Nil)), Rec (Cons (yts, Nil)), _, _ ->
-          unify_closed unify xts yts c
-      | Sum (Cons (xtss, Nil)), Sum (Cons (ytss, Nil)), _, _ ->
-          unify_closed unify_list xtss ytss c
-      | Rec (Cons (xts, Closed x)), Rec (Cons (yts, Closed y)), _, _
-        when Name.equal x y -> unify_closed unify xts yts c
-      | Sum (Cons (xtss, Closed x)), Sum (Cons (ytss, Closed y)), _, _
-        when Name.equal x y -> unify_closed unify_list xtss ytss c
-      (* `unify_open` for Cons cases with open rows/cols *)
-      | Rec (Cons (xts, Open x)), Rec (Cons (yts, Open y)), _, _ ->
-          unify_open unify build_row x y xts yts c
-      | Sum (Cons (xtss, Open x)), Sum (Cons (ytss, Open y)), _, _ ->
-          unify_open unify_list build_col x y xtss ytss c
-      (* Nested Cons should be impossible thanks to `unfold` *)
-      | Rec (Cons (_, Cons _)), Rec (Cons (_, Cons _)), _, _
-      | Sum (Cons (_, Cons _)), Sum (Cons (_, Cons _)), _, _
-      (* Cons (_, Nil | Closed _ | Open _) should be impossible (kind error) *)
-      | Rec _, Rec _, _, _ | Sum _, Sum _, _, _ -> assert false
+      (* Rec and Sum should be stuck thanks to `unfold`. *)
+      | Rec l, Rec r, _, _ -> unify_rows unify build_row l r c
+      | Sum l, Sum r, _, _ -> unify_rows unify_list build_col l r c
       (* App should be impossible thanks to `unfold` *)
       | App _, _, _, _ | _, App _, _, _ -> assert false
       (* Straightforward recursive cases *)
