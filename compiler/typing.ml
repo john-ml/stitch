@@ -388,11 +388,12 @@ and unify ?verbose:(verbose=false) want have c =
          The `unify` argument is used to make the function work for both rows
          and columns.
          
-         Returns:
+         Return:
            - An updated c yielded by unifying all types corresponding to
              field names present in both xts and yts
            - `left : row/col NameM.t`: field names & types present only in xts
-           - `right : row/col NameM.t`: field names & types present only in yts *)
+           - `right : row/col NameM.t`: field names & types present only in yts
+      *)
       let unify_open unify xts yts c =
         let xyts =
           NameM.merge
@@ -410,7 +411,11 @@ and unify ?verbose:(verbose=false) want have c =
            | Left (Right (x, t)) -> (c, lefts, NameM.add x t rights))
           xyts (c, NameM.empty, NameM.empty)
       in
-      let unify_rows (type a) (unify: a -> a -> _) (build: a Ty.row -> _) l r c =
+      (* Unify the two rows l ~ r. `unify` and `build` are used to make the
+         function work for both rows and columns. *)
+      let unify_rows (type a) (unify: a -> a -> _) (build: a Ty.row -> Ty.ty)
+        (l: a Ty.row) (r: a Ty.row) c: Ctx.t
+      =
         let simple_mismatch (mx: Name.t option) (my: Name.t option) c =
           let show = function
             | Some x -> "row " ^ Name.show x
@@ -446,7 +451,7 @@ and unify ?verbose:(verbose=false) want have c =
           | _ -> add_inst x (at (build (Cons (yts, r)))) c
         in
         match l, r with
-        (* `unify_closed` for matching two closed rows/cols *)
+        (* 2 closed rows *)
         | Cons (xts, Nil), Cons (yts, Nil) -> unify_closed unify xts yts c
         | Cons (xts, Closed x), Cons (yts, Closed y) ->
             if not (Name.equal x y) then
