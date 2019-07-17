@@ -81,7 +81,7 @@ let _ =
       if not succeeds then failwith "Shouldn't have succeeded" else ()
     with Mismatch (c, want, have, mmsg) ->
       print_endline (Printf.sprintf
-        "Expected %s but got %s%s. Context: %s"
+        "Expected %s, got %s%s. Context: %s"
         (Ty.show want) (Ty.show have)
         (match mmsg with None -> "" | Some msg -> " ("^msg^")")
         (Ctx.show c));
@@ -156,4 +156,12 @@ let _ =
          (at (Rec (Cons (NameM.singleton idy int, Open w))))
     |> unify
          (at (Rec (Cons (NameM.singleton idz int, Open r))))
-         (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Nil)))))
+         (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Nil)))));
+  (* {x int; ?r} ~ {y int; ?w} ==> {z int; ?r} /~ {y int, z int; ?w} *)
+  dump ~succeeds:false (fun c -> c
+    |> unify 
+         (at (Rec (Cons (NameM.singleton idx int, Open r))))
+         (at (Rec (Cons (NameM.singleton idy int, Open w))))
+    |> unify
+         (at (Rec (Cons (NameM.singleton idz int, Open r))))
+         (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Open w)))))
