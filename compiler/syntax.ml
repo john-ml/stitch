@@ -53,28 +53,26 @@ let env: alias NameM.t =
 let show =
   let open String in
   let join = concat "" in
-  (*let fields show_elt xs =
+  let fields show_elt xs =
     concat ", " (List.map (fun (x, t) ->
       concat " " [Name.show x; show_elt t]) (NameM.bindings xs))
-  in *)
+  in
+  let rec show_row go = function
+    | Nil -> ""
+    | Closed x -> Name.show x
+    | Open x -> Meta.show x
+    | Cons (xs, Nil) -> fields go xs
+    | Cons (xs, r) -> join [fields go xs; "; "; show_row go r]
+  in
   let rec go ty =
     let tuple ts = concat ", " (List.map go ts) in
-    (*let show_row = function
-      | Some t -> go (Node.at t)
-      | None -> ""
-    in *)
     match ty.Node.a with
     | Lit t -> Name.show t
     | Var x -> Name.show x
     | Ptr (r, t) -> join ["*("; go (Node.at r); ", "; go t; ")"]
     | Lbl (r, t) -> join ["..("; go (Node.at r); ", "; go t; ")"]
-    | Rec _ -> raise Todo
-    (* | Rec (Cons (xs, r)) -> join ["{"; fields go xs; "; "; show_row r; "}"] *)
-    | Sum _ -> raise Todo
-        (*match NameM.bindings xs, r with
-         | [x, ts], None when Name.(equal x (internal "tuple")) ->
-             join ["("; tuple ts; ")"]
-         | _ -> join ["<"; fields tuple xs ; "; "; show_row r; ">"]*)
+    | Rec r -> join ["{"; show_row go r; "}"]
+    | Sum r -> join ["<"; show_row tuple r; ">"]
     | Fun (ts, r) -> join ["("; tuple ts; ") -> "; go r]
     | App (f, ts) -> join [Name.show f; "("; tuple ts; ")"]
     | Meta x -> Meta.show x
