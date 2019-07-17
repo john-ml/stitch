@@ -325,135 +325,44 @@ let show_pat: pat -> string = let open Node in function
           (List.map (fun (x, t) -> Name.show x.a ^ " as " ^ Ty.show t) binds)
       ^ ")"
 
-let rec doc (e: t): Doc.t =
-  let open Doc in
-  let open Node in
+let rec pp ff (e: t) =
+  let open Format in
+  let printf s = fprintf ff s in
+  let comma_sep pp = pp_print_list ~pp_sep:(fun ff _ -> fprintf ff ",@;<1 2>") pp in
   match e.a with
-  | Int i -> Lit (string_of_int i)
-  | Float x -> Lit (string_of_float x)
-  | Str s -> Lit (String.escaped s)
-  | Var x -> Lit (Name.show x)
-  | Ref t -> Lit "&" +++ doc t
-  | Ind (e, i) -> doc e +++ Lit "[" +++ doc i +++ Lit "]"
-  | Ann (e, t) -> doc e +++ Lit (" as " ^ Ty.show t)
+  | Int i -> printf "%d" i
+  | Float x -> printf "%f" x
+  | Str s -> printf "%s" (String.escaped s)
+  | Var x -> printf "%s" (Name.show x)
+  | Ref t -> printf "&%a" pp t
+  | Ind (e, i) -> printf "@[<2>(%a[%a])@]" pp e pp i
+  | Ann (e, t) -> printf "@[<2>(%a as %s)@]" pp e (Ty.show t)
   | Defer (e, x, t, e1) ->
-      doc e +++ Lit (" " ^ Name.show x ^ " as " ^ Ty.show t ^ " -> ") +++ doc e1
+      printf "@[(%a defer %s as %s -> %a)@]"
+        pp e (Name.show x) (Ty.show t) pp e1
   | Inj (x, es) ->
-      let ds = List.map doc es in
-      if List.for_all single_line ds then
-        Name.show x.a >>> par (horzs ds)
-      else
-        Name.show x.a >>> vpar (Ind (2, verts (sep_by "," ds)))
-  | Case (
-      {a = App ({a = Var fbool; _}, [p]); _},
-      [ Some (ptrue, []), a
-      ; Some (pfalse, []), b
-      ])
-    when let open Name in
-         equal fbool (id "__bool__")
-         && equal ptrue.a (internal "true")
-         && equal pfalse.a (internal "false")
-    ->
-       let dp = doc p in
-       let da = doc a in
-       let db = doc b in
-       (* TODO find a better way to do this *)
-       (match single_line dp, single_line da, single_line db with
-        | true, true, true ->
-            ("if " >>> dp) +++ (" then " >>> da) +++ (" else " >>> db)
-        | true, true, false ->
-            "if " ^ render dp ^ " then " ^ render da ^ " else " >>> vpar (Ind (2, db))
-        | true, false, true ->
-            ("if " ^ render dp ^ " then ") >>> vpar (Ind (2, da)) <<< " else " ^ render db
-        | true, false, false ->
-            "if " ^ render dp >>> (Lit " then ("
-            --- Ind (2, da)
-            --- Lit ") else ("
-            --- Ind (2, db)
-            --- Lit ")")
-        | false, true, true ->
-            "if " >>> vpar (Ind (2, dp)) <<< " then " ^ render da ^ " else " ^ render db
-        | false, true, false ->
-            (("if " >>> vpar (Ind (2, dp))) <<< " then " ^ render da ^ " else (")
-            --- Ind (2, db) --- Lit ")"
-        | false, false, true ->
-            Lit "if ("
-            --- Ind (2, dp)
-            --- Lit ") then ("
-            --- Ind (2, da)
-            --- Lit ") else " <<< render db
-        | false, false, false ->
-            Lit "if ("
-            --- Ind (2, dp)
-            --- Lit ") then ("
-            --- Ind (2, da)
-            --- Lit ") else ("
-            --- Ind (2, db)
-            --- Lit ")")
+      printf "@[%s(@,%a)@]"
+        (Name.show x.a)
+        (pp_print_list ~pp_sep:pp_print_cut pp) es
   | Case (e, pes) ->
-      let de = doc e in
-      let ds =
-        sep_by ", " (List.map (fun (p, e) -> show_pat p ^ " -> " >>> doc e) pes)
-      in
-      (match single_line de, List.for_all single_line ds with
-       | true, true -> ("case " >>> par de <<< " ") +++ brac (horzs ds)
-       | true, false ->
-           "case " ^ render (par de) >>> vbrac (Ind (2, verts ds))
-       | false, true ->
-           vpar (Ind (2, vpar (Ind (2, de)))) <<< render (brac (horzs ds))
-       | false, false ->
-           Lit "case (" --- Ind (2, de) --- Lit ") {"
-           --- Ind (2, verts ds) --- Lit "}")
-  | Proj (e, x) ->
-      let d = doc e in
-      if single_line d then
-        par d <<< "." ^ Name.show x.a
-      else
-        vpar (Ind (2, d)) <<< "." ^ Name.show x.a
+      printf "@[<v>case %a {@;<0 2>%a@,}@]"
+        pp e
+        (comma_sep (fun ff (p, e) ->
+          fprintf ff "@[%s ->@;<1 2>@[%a@]@]" (show_pat p) pp e))
+        pes
+  | Proj (e, x) -> printf "%a.%s" pp e (Name.show x.a)
   | Rec xes ->
-      let open List in
-      let ds =
-        sep_by ", " (
-          map
-            (fun (x, e) -> Name.show x ^ " = " >>> doc e)
-            (NameM.bindings xes))
-      in
-      if for_all (fun d -> single_line d) ds
-      then brac (horzs ds)
-      else vbrac (verts ds)
-  | App (f, xs) ->
-      let df = doc f in
-      let ds = sep_by ", " (List.map doc xs) in
-      (match single_line df, List.for_all single_line ds with
-       | true, true -> par df +++ par (horzs ds)
-       | true, false ->
-           render (par df) >>> vpar (Ind (2, verts ds))
-       | false, true ->
-           vpar (Ind (2, vpar (Ind (2, df))))
-           <<< render (par (horzs ds))
-       | false, false ->
-           vpar (Ind (2, df) --- Lit ")(" --- Ind (2, verts ds)))
-  | Sus (l, e) ->
-      let d = doc e in
-      if single_line d then
-        Name.show l.a ^ ": " >>> d
-      else
-        Name.show l.a ^ ": " >>> vpar (Ind (2, d))
-  | Res e ->
-      let d = doc e in
-      if single_line d then
-        ".." >>> d
-      else
-        ".." >>> vpar (Ind (2, d))
+      printf "@ {@[<hv>{@;<0 2>%a@,}@]"
+        (comma_sep (fun ff (x, e) ->
+          fprintf ff "@[<hv>%s = @;<1 2>@[%a@]@]" (Name.show x) pp e))
+        (NameM.bindings xes)
+  | App (f, xs) -> printf "@[<hv>@[%a@](@;<0 1>@[%a@])@]" pp f (comma_sep pp) xs
+  | Sus (l, e) -> printf "@[%s: %a@]" (Name.show l.a) pp e
+  | Res e -> printf "..%a" pp e
   | Let (x, t, r, e) ->
-      (Lit (Name.show x.a ^ " as " ^ Ty.show t ^ " = ") +++ doc r <<< ";") 
-      --- doc e
-  | Set (l, r, e) ->
-      let dl = doc l in
-      if single_line dl then
-        ((dl +++ Lit " := " +++ doc r) <<< ";") --- doc e
-      else
-        Lit "(" --- Ind (2, dl) --- (") := " >>> doc r <<< ";") --- doc e
+      printf "@[<v>@[%s as %s =@;<1 2>%a;@]@;@[%a@]@]"
+        (Name.show x.a) (Ty.show t) pp r pp e
+  | Set (l, r, e) -> printf "@[<v>@[%a@ :=@;<1 2>%a;@]@;@[%a@]@]" pp l pp r pp e
 
 end (* Expr *)
 
