@@ -121,4 +121,27 @@ let _ =
   dump (fun c -> c
     |> unify mx my
     |> unify mz mw
-    |> unify mx mw)
+    |> unify mx mw);
+  (* μ x. f^10(x) ~ μ y. f^11(z) *)
+  dump (fun c -> c
+    |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
+    |> unify my (f (f (f (f (f (f (f (f (f (f (f (at (Var (id "z"))))))))))))))
+    |> unify mx my);
+  let int = at (Lit (id "int")) in
+  let idx, idy = id "x", id "y" in
+  (* {x int} /~ {y int} *)
+  dump (unify 
+    (at (Rec (Cons (NameM.singleton idx int, Nil))))
+    (at (Rec (Cons (NameM.singleton idy int, Nil)))));
+  (* {x int} ~ {x int} *)
+  dump (unify 
+    (at (Rec (Cons (NameM.singleton idx int, Nil))))
+    (at (Rec (Cons (NameM.singleton idx int, Nil)))));
+  (* {x int; ?z} ~ {x int; ?w} *)
+  dump (unify 
+    (at (Rec (Cons (NameM.singleton idx int, Open z))))
+    (at (Rec (Cons (NameM.singleton idx int, Open w)))));
+  (* {x int; ?z} ~ {y int; ?w} *)
+  dump (unify 
+    (at (Rec (Cons (NameM.singleton idx int, Open z))))
+    (at (Rec (Cons (NameM.singleton idy int, Open w)))))

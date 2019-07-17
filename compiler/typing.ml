@@ -388,7 +388,6 @@ and unify ?verbose:(verbose=false) want have c =
          The `unify` and `build` arguments are used to make the function work
          for both rows and columns. *)
       let unify_open unify build x y xts yts c =
-        let open NameM in
         (* Collect:
            - An updated c yielded by unifying all types corresponding to
              field names present in both xts and yts
@@ -396,7 +395,7 @@ and unify ?verbose:(verbose=false) want have c =
            - `right : row/col NameM.t`: field names & types present only in yts
         *)
         let xyts =
-          merge
+          NameM.merge
             (fun x ms mt -> match ms, mt with
              | Some s, Some t -> Some (Right (s, t))
              | Some s, None -> Some (Left (Left (x, s)))
@@ -405,20 +404,28 @@ and unify ?verbose:(verbose=false) want have c =
             xts yts
         in
         let c, lefts, rights =
-          fold
+          NameM.fold
             (fun _ res (c, lefts, rights) -> match res with
              | Right (s, t) -> (unify s t c, lefts, rights)
-             | Left (Left (x, s)) -> (c, add x s lefts, rights)
-             | Left (Right (x, t)) -> (c, lefts, add x t rights))
-            xyts (c, empty, empty)
+             | Left (Left (x, s)) -> (c, NameM.add x s lefts, rights)
+             | Left (Right (x, t)) -> (c, lefts, NameM.add x t rights))
+            xyts (c, NameM.empty, NameM.empty)
         in
-        (* Generate fresh metas x' and y' and instantiate
-             x = rights; x'
-             y = lefts; y'
+        (* Generate fresh metas x' and y', instantiate
+             x -> rights; x'
+             y -> lefts; y',
+           and add the constraint x' ~ y'.
+           (as an optimization, just union x and y if rights/lefts are
+            empty)
         *)
-        let x', y' = Meta.(fresh (), fresh ()) in
-        c |> add_inst x (at (build (Cons (rights, Open x'))))
-          |> add_inst y (at (build (Cons (lefts, Open y'))))
+        let add_inst' x row c =
+          if NameM.is_empty row then (c, x) else 
+          let x' = Meta.fresh () in
+          (add_inst x (at (build (Cons (row, Open x')))) c, x')
+        in
+        let c, x' = add_inst' x rights c in
+        let c, y' = add_inst' y lefts c in
+        union x' y' c
       in
       match want.a, have.a, want, have with
       (* All metas should be stuck thanks to `unfold` and `demeta`.
