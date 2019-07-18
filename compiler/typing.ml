@@ -25,6 +25,44 @@ exception Unbound of Span.t * Name.t
 exception Mismatch of t * Ty.t * Ty.t * string option
 exception RowDup of t * Name.t * Ty.t
 exception Escaping of Span.t * Name.t
+exception BadRecursion of t * Meta.t * Ty.t
+
+let find' x c = let uf, x = Uf.find' x c.uf in ({c with uf = uf}, x)
+let union x y c = {c with uf = Uf.union x y c.uf}
+
+(* Check if ?x occurs anywhere in t (even hiding inside other metas).
+   If not strict, don't look under pointer types *)
+let occurs ?strict:(strict=true) (x: Meta.t) (t: Ty.t) (c: t): t * bool =
+  let open Ty in
+  let visited = ref MetaS.empty in
+  let x = Uf.find x c.uf in
+  let ref_c = ref c in
+  let rec go_row go go_elt = function
+   | Nil | Closed _ -> false
+   | Open x -> go (at (Meta x))
+   | Cons (xts, r) -> NameM.exists (fun _ -> go_elt) xts || go_row go go_elt r
+  in
+  let rec go (t: Ty.t) =
+    match t.a with
+    | Lit _ | Var _ -> false
+    | Ptr (r, t) -> strict && (go (at r) || go t)
+    | Lbl (r, t) -> go (at r) || go t
+    | Rec r -> go_row go go r
+    | Sum r -> go_row go (List.exists go) r
+    | Fun (ts, r) -> List.exists go ts || go r
+    | App (_, ts) -> List.exists go ts
+    | Meta y ->
+        let c, y = find' y !ref_c in
+        ref_c := c;
+        if Meta.equal x y then true else
+        if MetaS.mem y !visited then false else begin
+          visited := MetaS.add y !visited;
+          try go (MetaM.find y !ref_c.insts)
+          with Not_found -> false
+        end
+  in
+  let res = go t in
+  (!ref_c, res)
 
 let require (x: Meta.t) (trait: Name.t) (c: t): t =
   {c with constraints =
@@ -48,19 +86,23 @@ let lookup_global sp (x: Name.t) (c: t): Ty.poly =
   try NameM.find x c.globals
   with Not_found -> raise (Unbound (sp, x))
 
-(* Uf.find(') lifted to contexts *)
-let find' x c = let uf, x = Uf.find' x c.uf in ({c with uf = uf}, x)
+(* Ensure that ?x = t is a safely recursive instantiation (recursive
+   occurrences only allowed behind Ptr *)
+let rec_guard x t c =
+  let c, p = occurs ~strict:false x t c in
+  if not p then c else raise (BadRecursion (c, x, t))
 
-(* Uf.union lifted to contexts *)
-let union x y c = {c with uf = Uf.union x y c.uf}
+let add_inst x t c =
+  let c = rec_guard x t c in
+  {c with insts = MetaM.add x t c.insts}
 
-(* MetaM.add lifted to contexts *)
-let add_inst x t c = {c with insts = MetaM.add x t c.insts}
 let add_rec_inst x t c =
+  let c = rec_guard x t c in
   {c with rec_insts =
      MetaM.update x
        (function Some s -> Some (TyS.add t s) | None -> Some (TyS.singleton t))
        c.rec_insts}
+
 let add_poly_inst x (xts: Meta.t NameM.t) c =
   {c with poly_insts = MetaM.add x xts c.poly_insts}
 
@@ -69,42 +111,19 @@ let add_app x fxs c = {c with apps = AppI.add x fxs c.apps}
 
 let trap sp x c = {c with trapped = MetaM.add x sp c.trapped}
 
-let occurs (x: Meta.t) (t: Ty.t) (c: t): bool =
-  let open Ty in
-  let visited = ref MetaS.empty in
-  let x = Uf.find x c.uf in
-  let rec go_row go go_elt = function
-   | Nil | Closed _ -> false
-   | Open x -> go (at (Meta x))
-   | Cons (xts, r) -> NameM.exists (fun _ -> go_elt) xts || go_row go go_elt r
-  in
-  let rec go (t: Ty.t) =
-    match t.a with
-    | Lit _ | Var _ -> false
-    | Ptr (r, t) | Lbl (r, t) -> go (at r) || go t
-    | Rec r -> go_row go go r
-    | Sum r -> go_row go (List.exists go) r
-    | Fun (ts, r) -> List.exists go ts || go r
-    | App (_, ts) -> List.exists go ts
-    | Meta y ->
-        let y = Uf.find y c.uf in
-        if Meta.equal x y then true else
-        if MetaS.mem y !visited then false else begin
-          visited := MetaS.add y !visited;
-          try go (MetaM.find y c.insts)
-          with Not_found -> false
-        end
-  in
-  go t
-
 (* Check if any metas in `escaping` appear in any local variables *)
-let check_escaping (escaping: Span.t MetaM.t) (c: t): unit =
+let check_escaping (escaping: Span.t MetaM.t) (c: t): t =
+  let ref_c = ref c in
   NameM.iter
     (fun y t ->
        MetaM.iter
-         (fun x sp -> if occurs x t c then raise (Escaping (sp, y)))
+         (fun x sp ->
+            let c, p = occurs x t !ref_c in
+            ref_c := c;
+            if p then raise (Escaping (sp, y)))
          escaping)
-    c.locals
+    c.locals;
+  !ref_c
 
 (* Contexts are passed statefully through all typechecking functions, but:
    - .locals should behave more like Reader
@@ -115,7 +134,7 @@ let check_escaping (escaping: Span.t MetaM.t) (c: t): unit =
 let locally (c: t) (f: t -> t * 'a): t * 'a =
   let c', x = f {c with trapped = MetaM.empty} in
   let c = {c' with trapped = c.trapped; locals = c.locals} in
-  check_escaping c'.trapped c;
+  let c = check_escaping c'.trapped c in
   (c, x)
 
 let show c =
@@ -393,6 +412,7 @@ and demeta (want: Ty.t) (have: Ty.t) (c: Ctx.t): (Ctx.t, Ctx.t * Ty.t * Ty.t) ei
     (* If not equal under an existing hypothesis, add one and pass expansions
        on to `unify`. (These are split out into 2 separate cases to preserve 
        the argument positions of `want` and `have`). *)
+    | Meta x, Meta y, _, _ when x = y -> Left c
     | Meta x, _, _, ty -> Right (add_rec_inst x ty c, expand want, expand have)
     | _, Meta x, ty, _ -> Right (add_rec_inst x ty c, expand want, expand have)
     | _ -> assert false)
@@ -403,21 +423,18 @@ and demeta (want: Ty.t) (have: Ty.t) (c: Ctx.t): (Ctx.t, Ctx.t * Ty.t * Ty.t) ei
 and unify ?verbose:(verbose=false) want have c =
   if verbose then 
     print_endline (Printf.sprintf "%s ~ %s -| %s" 
-      (Ty.show want) (Ty.show have) (Ctx.show c))
-  else ();
+      (Ty.show want) (Ty.show have) (Ctx.show c));
   let c, want = unfold want c in
   let c, have = unfold have c in
   if verbose then 
     print_endline (Printf.sprintf "unfolded: %s ~ %s -| %s"
-      (Ty.show want) (Ty.show have) (Ctx.show c))
-  else ();
+      (Ty.show want) (Ty.show have) (Ctx.show c));
   match demeta want have c with
   | Left c -> c
   | Right (c, want, have) -> 
       if verbose then
         print_endline (Printf.sprintf "demeta-d: %s ~ %s -| %s"
-          (Ty.show want) (Ty.show have) (Ctx.show c))
-      else ();
+          (Ty.show want) (Ty.show have) (Ctx.show c));
       let open Ty in
       (* Unify closed rows/columns xts ~ yts.
          The `unify` argument is used to make the function work for both rows

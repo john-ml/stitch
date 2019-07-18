@@ -62,18 +62,27 @@ let dump_ctx ~succeeds k =
     print_endline (Ctx.show (k empty_ctx));
     if not succeeds then failwith "Shouldn't have succeeded" else ()
   with
+  | Ctx.Unbound (_, x) ->
+      print_endline (Printf.sprintf
+        "Variable not in scope: %s" (Name.show x));
+      failed ()
   | Ctx.Mismatch (c, want, have, mmsg) ->
-    print_endline (Printf.sprintf
-      "Expected %s, got %s%s. Context: %s"
-      (Ty.show want) (Ty.show have)
-      (match mmsg with None -> "" | Some msg -> " ("^msg^")")
-      (Ctx.show c));
-    failed ()
+      print_endline (Printf.sprintf
+        "Want %s, have %s%s. Context: %s"
+        (Ty.show want) (Ty.show have)
+        (match mmsg with None -> "" | Some msg -> " ("^msg^")")
+        (Ctx.show c));
+      failed ()
   | Ctx.RowDup (c, x, t) ->
-    print_endline (Printf.sprintf
-      "Field %s is duplicated in %s. Context: %s"
-      (Name.show x) (Ty.show t) (Ctx.show c));
-    failed ()
+      print_endline (Printf.sprintf
+        "Field %s is duplicated in %s. Context: %s"
+        (Name.show x) (Ty.show t) (Ctx.show c));
+      failed ()
+  | Ctx.BadRecursion (c, x, t) ->
+      print_endline (Printf.sprintf
+        "Can't construct infinite type %s ~ %s. Context: %s"
+        (Meta.show x) (Ty.show t) (Ctx.show c));
+      failed ()
   end;
   print_endline ""
 
@@ -85,12 +94,15 @@ let _ =
   let p, _q, r, _s = Meta.(fresh (), fresh (), fresh (), fresh ()) in
   let x, y, z, w = Meta.(fresh (), fresh (), fresh (), fresh ()) in
   let f t = at (Ptr (Meta p, t)) in
+  let g t = at (Lbl (Meta p, t)) in
   let mx, my, mz, mw = at (Meta x), at (Meta y), at (Meta z), at (Meta w) in
   (* μ x. *x ~ μ y. *y *)
   dump_ctx ~succeeds:true (fun c -> c
     |> unify mx (f mx)
     |> unify my (f my)
     |> unify mx my);
+  (* x /~ ..x *)
+  dump_ctx ~succeeds:false (unify mx (g mx));
   (* μ x. *x ~ μ y. **y *)
   dump_ctx ~succeeds:true (fun c -> c
     |> unify mx (f mx)
@@ -187,6 +199,7 @@ let _ =
     ("x" *: !?() -= ~!3 @@
      "y" *: !?() -= ~%0.1 @@
      ~$"x");
+  dump_ctx_infer ~succeeds:false ~$"x";
   dump_ctx_infer ~succeeds:false (~%0.1 *:: ~$$"i64");
   dump_ctx_infer ~succeeds:false (~!1 *:: ~$$"f64");
   dump_ctx_infer ~succeeds:true (~!1 *:: ~$$"i64");
