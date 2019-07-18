@@ -14,7 +14,7 @@ let _ =
   let nested =
     mk_set (mk_var "y")
       (mk_ann
-        (mk_ref (mk_ind (mk_var "x") (mk_int 3)))
+        (mk_ref (fresh ()) (mk_ind (mk_var "x") (mk_int 3)))
         (at (Ptr (Meta (fresh ()), at (Lit (id "i32"))))))
       (mk_int 0)
   in
@@ -29,7 +29,6 @@ let _ =
   dump (ite None nested nested nested);
   Format.pp_set_margin Format.std_formatter old_margin
 
-(*
 let _ =
   let open Uf in
   let x, y, z, w = Meta.fresh (), Meta.fresh (), Meta.fresh (), Meta.fresh () in
@@ -47,107 +46,113 @@ let _ =
   let uf = union w y uf in
   dump uf
 
+let empty_ctx = 
+  let open Typing in
+  { Ctx
+  . locals = NameM.empty
+  ; globals = NameM.empty
+  ; aliases = NameM.empty
+  ; uf = Uf.empty
+  ; insts = MetaM.empty
+  ; rec_insts = MetaM.empty
+  ; apps = AppI.empty
+  ; trapped = MetaM.empty
+  ; poly_insts = MetaM.empty
+  ; constraints = NameM.empty
+  }
+
+let dump_ctx ~succeeds k =
+  let open Typing in
+  let failed () = if succeeds then failwith "Shouldn't have failed" else () in
+  try
+    print_endline (Ctx.show (k empty_ctx));
+    if not succeeds then failwith "Shouldn't have succeeded" else ()
+  with
+  | Ctx.Mismatch (c, want, have, mmsg) ->
+    print_endline (Printf.sprintf
+      "Expected %s, got %s%s. Context: %s"
+      (Ty.show want) (Ty.show have)
+      (match mmsg with None -> "" | Some msg -> " ("^msg^")")
+      (Ctx.show c));
+    failed ()
+  | Ctx.RowDup (c, x, t) ->
+    print_endline (Printf.sprintf
+      "Field %s is duplicated in %s. Context: %s"
+      (Name.show x) (Ty.show t) (Ctx.show c));
+    failed ()
+
 let _ =
   let open Name in
   let open Node in
   let open Ty in
   let open Typing in
-  let empty = 
-    { Ctx
-    . locals = NameM.empty
-    ; globals = NameM.empty
-    ; aliases = NameM.empty
-    ; uf = Uf.empty
-    ; insts = MetaM.empty
-    ; rec_insts = MetaM.empty
-    ; apps = AppI.empty
-    }
-  in
   let p, _q, r, _s = Meta.(fresh (), fresh (), fresh (), fresh ()) in
   let x, y, z, w = Meta.(fresh (), fresh (), fresh (), fresh ()) in
-  let dump ~succeeds k =
-    let failed () = if succeeds then failwith "Shouldn't have failed" else () in
-    try
-      print_endline (Ctx.show (k empty));
-      if not succeeds then failwith "Shouldn't have succeeded" else ()
-    with
-    | Mismatch (c, want, have, mmsg) ->
-      print_endline (Printf.sprintf
-        "Expected %s, got %s%s. Context: %s"
-        (Ty.show want) (Ty.show have)
-        (match mmsg with None -> "" | Some msg -> " ("^msg^")")
-        (Ctx.show c));
-      failed ()
-    | RowDup (c, x, t) ->
-      print_endline (Printf.sprintf
-        "Field %s is duplicated in %s. Context: %s"
-        (Name.show x) (Ty.show t) (Ctx.show c));
-      failed ()
-  in
   let f t = at (Ptr (Meta p, t)) in
   let mx, my, mz, mw = at (Meta x), at (Meta y), at (Meta z), at (Meta w) in
   (* μ x. *x ~ μ y. *y *)
-  dump ~succeeds:true (fun c -> c
+  dump_ctx ~succeeds:true (fun c -> c
     |> unify mx (f mx)
     |> unify my (f my)
     |> unify mx my);
   (* μ x. *x ~ μ y. **y *)
-  dump ~succeeds:true (fun c -> c
+  dump_ctx ~succeeds:true (fun c -> c
     |> unify mx (f mx)
     |> unify my (f (f my))
     |> unify mx my);
   (* μ x. f^10(x) ~ μ y. f^11(y) *)
-  dump ~succeeds:true (fun c -> c
+  dump_ctx ~succeeds:true (fun c -> c
     |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
     |> unify my (f (f (f (f (f (f (f (f (f (f (f my)))))))))))
     |> unify mx my);
   (* ?x = f(?y), ?y = f(?x), ?z = f(?z) ==> ?x ~ ?z *)
-  dump ~succeeds:true (fun c -> c
+  dump_ctx ~succeeds:true (fun c -> c
     |> unify mx (f my)
     |> unify my (f mz)
     |> unify mz (f mz)
     |> unify mx mz);
   (* ?x = f(?y), ?y = f(?y) ==> ?x ~ ?y *)
-  dump ~succeeds:true (fun c -> c
+  dump_ctx ~succeeds:true (fun c -> c
     |> unify mx (f my)
     |> unify my (f my)
     |> unify mx my);
   (* ?x = f(f(?x)) ==> ?x ~ f(?x) *)
-  dump ~succeeds:true (fun c -> c
+  dump_ctx ~succeeds:true (fun c -> c
     |> unify mx (f (f mx))
     |> unify mx (f mx));
   (* x /~ y *)
-  dump ~succeeds:false (fun c -> c |> unify (at (Var (id "x"))) (at (Var (id "y"))));
+  dump_ctx ~succeeds:false (fun c -> c
+    |> unify (at (Var (id "x"))) (at (Var (id "y"))));
   (* ?x ~ ?y, ?z ~ ?w, ?x ~ ?w *)
-  dump ~succeeds:true (fun c -> c
+  dump_ctx ~succeeds:true (fun c -> c
     |> unify mx my
     |> unify mz mw
     |> unify mx mw);
   (* μ x. f^10(x) /~ μ y. f^11(z) *)
-  dump ~succeeds:false (fun c -> c
+  dump_ctx ~succeeds:false (fun c -> c
     |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
     |> unify my (f (f (f (f (f (f (f (f (f (f (f (at (Var (id "z"))))))))))))))
     |> unify mx my);
   let int = at (Lit (id "int")) in
   let idx, idy, idz = id "x", id "y", id "z" in
   (* {x int} /~ {y int} *)
-  dump ~succeeds:false (unify
+  dump_ctx ~succeeds:false (unify
     (at (Rec (Cons (NameM.singleton idx int, Nil))))
     (at (Rec (Cons (NameM.singleton idy int, Nil)))));
   (* {x int} ~ {x int} *)
-  dump ~succeeds:true (unify 
+  dump_ctx ~succeeds:true (unify 
     (at (Rec (Cons (NameM.singleton idx int, Nil))))
     (at (Rec (Cons (NameM.singleton idx int, Nil)))));
   (* {x int; ?z} ~ {x int; ?w} *)
-  dump ~succeeds:true (unify 
+  dump_ctx ~succeeds:true (unify 
     (at (Rec (Cons (NameM.singleton idx int, Open z))))
     (at (Rec (Cons (NameM.singleton idx int, Open w)))));
   (* {x int; ?z} ~ {y int; ?w} *)
-  dump ~succeeds:true (unify 
+  dump_ctx ~succeeds:true (unify 
     (at (Rec (Cons (NameM.singleton idx int, Open z))))
     (at (Rec (Cons (NameM.singleton idy int, Open w)))));
   (* {x int; ?r} ~ {y int; ?w} ==> {z int; ?r} ~ {y int, z int} *)
-  dump ~succeeds:true (fun c -> c
+  dump_ctx ~succeeds:true (fun c -> c
     |> unify 
          (at (Rec (Cons (NameM.singleton idx int, Open r))))
          (at (Rec (Cons (NameM.singleton idy int, Open w))))
@@ -155,7 +160,7 @@ let _ =
          (at (Rec (Cons (NameM.singleton idz int, Open r))))
          (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Nil)))));
   (* {x int; ?r} ~ {y int; ?w} ==> {z int; ?r} /~ {y int, z int; ?w} *)
-  dump ~succeeds:false (fun c -> c
+  dump_ctx ~succeeds:false (fun c -> c
     |> unify 
          (at (Rec (Cons (NameM.singleton idx int, Open r))))
          (at (Rec (Cons (NameM.singleton idy int, Open w))))
@@ -163,11 +168,30 @@ let _ =
          (at (Rec (Cons (NameM.singleton idz int, Open r))))
          (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Open w)))));
   (* {; ?r} ~ {x int} ==> {x int; ?r} ~ ?y *)
-  dump ~succeeds:false (fun c -> c
+  dump_ctx ~succeeds:false (fun c -> c
     |> unify 
          (at (Rec (Cons (NameM.empty, Open r))))
          (at (Rec (Cons (NameM.singleton idx int, Nil))))
     |> unify
          (at (Rec (Cons (NameM.singleton idx int, Open r))))
          (at (Meta y)))
-*)
+
+let _ =
+  let open Node in
+  let open Name in
+  let open Typing in
+  let open Ty in let open Notation in
+  let open Expr in let open Notation in
+  let dump_ctx_infer ~succeeds e =
+    dump_ctx ~succeeds (fun c ->
+      let c, t = infer_expr e c in
+      print_endline (Ty.show t);
+      c)
+  in
+  dump_ctx_infer ~succeeds:true
+    ("x" *: !?() -= ~!3 @@
+     "y" *: !?() -= ~%0.1 @@
+     ~$"x");
+  dump_ctx_infer ~succeeds:false (~%0.1 *:: at (Lit (id "i64")));
+  dump_ctx_infer ~succeeds:false (~!1 *:: at (Lit (id "f64")));
+  dump_ctx_infer ~succeeds:true (~!1 *:: at (Lit (id "i64")))

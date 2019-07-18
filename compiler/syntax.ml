@@ -130,6 +130,10 @@ let compare l r =
   in
   go l.a r.a
 
+module Notation = struct
+  let ( !? ) _ = Node.at (Meta (Meta.fresh ()))
+end
+
 end (* Ty *)
 
 module TyS = Set.Make(Ty)
@@ -149,7 +153,7 @@ and expr
   | (* float               *) Float of float
   | (* string              *) Str of string
   | (* x, y, etc.          *) Var of Name.t
-  | (* &e                  *) Ref of t
+  | (* &e                  *) Ref of Meta.t * t
   | (* e[e]                *) Ind of t * t
   | (* e as t              *) Ann of t * Ty.t
   | (* e defer x as t -> e *) Defer of t * Name.t * Ty.t * t
@@ -158,7 +162,8 @@ and expr
   | (* e.x                 *) Proj of t * Name.t Node.t
   | (* {x = e, ..}         *) Rec of t NameM.t
   | (* e(e, ..)            *) App of t * t list
-  | (* l: e                *) Sus of Name.t Node.t * t
+  | (* f@[t, ..](e, ..)    *) GApp of Name.t Node.t * Meta.t * t list
+  | (* l: e                *) Sus of Name.t Node.t * Meta.t * t
   | (* ..e                 *) Res of t
   | (* x as t = e; e       *) Let of Name.t Node.t * Ty.t * t * t
   | (* e := e; e           *) Set of t * t * t
@@ -169,7 +174,7 @@ let mk_int i = Node.at (Int i)
 let mk_float x = Node.at (Float x)
 let mk_str s = Node.at (Str s)
 let mk_var x = Node.at (Var (Name.id x))
-let mk_ref e = Node.at (Ref e)
+let mk_ref x e = Node.at (Ref (x, e))
 let mk_ind e i = Node.at (Ind (e, i))
 let mk_ann e t = Node.at (Ann (e, t))
 let mk_defer e x t e1 = Node.at (Defer (e, x, t, e1))
@@ -178,10 +183,25 @@ let mk_case x arms = Node.at (Case (x, arms))
 let mk_proj x field = Node.at (Proj (x, Node.at (Name.id field)))
 let mk_rec xes = Node.at (Rec (NameM.of_list xes))
 let mk_app f xs = Node.at (App (f, xs))
-let mk_sus l e = Node.at (Sus (Node.at (Name.id l), e))
+let mk_gapp f x xs = Node.at (GApp (f, x, xs))
+let mk_sus l x e = Node.at (Sus (Node.at (Name.id l), x, e))
 let mk_res e = Node.at (Res e)
 let mk_let x t e1 e = Node.at (Let (Node.at (Name.id x), t, e1, e))
 let mk_set l r e = Node.at (Set (l, r, e))
+
+module Notation = struct
+  let ( ~$ ) = mk_var
+  let ( ~! ) = mk_int
+  let ( ~% ) = mk_float
+  let ( *: ) x t = (x, t)
+  let ( -= ) (x, t) = mk_let x t
+  let ( += ) = mk_set
+  let ( *. ) = mk_proj
+  let ( *:: ) = mk_ann
+  let ( *$ ) = mk_app
+  let ( *@ ) (x, ts) = mk_gapp x ts
+  let ( *.. ) = mk_ind
+end
 
 type uop
   = (* -       *) Neg
@@ -200,8 +220,9 @@ let uop (op: uop Node.t) (e: t): t =
   let open Node in
   let open Span in
   at ~sp:(join op.span e.span) (
-    App (
-      at ~sp:op.span (Var (uop_name op.a)),
+    GApp (
+      at ~sp:op.span (uop_name op.a),
+      Meta.fresh (),
       [e]))
 
 (* Binary operators become binary function calls *)
@@ -222,8 +243,9 @@ let bop (a: t) (op: bop Node.t) (b: t): t =
   let open Node in
   let open Span in
   at ~sp:(join a.span b.span) (
-    App (
-      at ~sp:op.span (Var (bop_name op.a)),
+    GApp (
+      at ~sp:op.span (bop_name op.a),
+      Meta.fresh (),
       [a; b]))
 
 (* *p becomes p[0] *)
@@ -334,7 +356,7 @@ let rec pp ff (e: t) =
   | Float x -> printf "%f" x
   | Str s -> printf "%s" (String.escaped s)
   | Var x -> printf "%s" (Name.show x)
-  | Ref t -> printf "&%a" pp t
+  | Ref (x, t) -> printf "&(%s) %a" (Meta.show x) pp t
   | Ind (e, i) -> printf "@[<2>(%a[%a])@]" pp e pp i
   | Ann (e, t) -> printf "@[<2>(%a as %s)@]" pp e (Ty.show t)
   | Defer (e, x, t, e1) ->
@@ -357,7 +379,10 @@ let rec pp ff (e: t) =
           fprintf ff "@[<hv>%s = @;<1 2>@[%a@]@]" (Name.show x) pp e))
         (NameM.bindings xes)
   | App (f, xs) -> printf "@[<hv>@[%a@](@;<0 1>@[%a@])@]" pp f (comma_sep pp) xs
-  | Sus (l, e) -> printf "@[%s: %a@]" (Name.show l.a) pp e
+  | GApp (f, x, xs) ->
+      printf "@[<hv>%s:[%s](@;<0 1>@[%a@])@]"
+        (Name.show f.a) (Meta.show x) (comma_sep pp) xs
+  | Sus (l, x, e) -> printf "@[%s(%s): %a@]" (Name.show l.a) (Meta.show x) pp e
   | Res e -> printf "..%a" pp e
   | Let (x, t, r, e) ->
       printf "@[<v>@[%s as %s =@;<1 2>%a;@]@;@[%a@]@]"

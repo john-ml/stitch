@@ -1,5 +1,3 @@
-exception Todo
-
 module Span = struct
   type loc = int * int
   type t = (loc * loc) option

@@ -16,7 +16,32 @@ type t =
   ; (* Instantiations for metas *) insts: Ty.t MetaM.t       
   ; (* Coinductive insts        *) rec_insts: TyS.t MetaM.t
   ; (* Metas for applications   *) apps: AppI.t              
+  ; (* Metas that can't escape  *) trapped: Span.t MetaM.t
+  ; (* Insts for poly fn apps   *) poly_insts: Ty.t NameM.t MetaM.t
+  ; (* Trait requirements       *) constraints: TyS.t NameM.t
   }
+
+exception Unbound of Span.t * Name.t
+exception Mismatch of t * Ty.t * Ty.t * string option
+exception RowDup of t * Name.t * Ty.t
+exception Escaping of Span.t * Name.t
+
+let require (trait: Name.t) (t: Ty.t) (c: t): t =
+  {c with constraints =
+     NameM.update trait
+      (function | Some ts -> Some (TyS.add t ts) | None -> Some (TyS.singleton t))
+      c.constraints}
+
+let extend (x: Name.t) (t: Ty.t) (c: t): t =
+  {c with locals = NameM.add x t c.locals}
+    
+let lookup sp (x: Name.t) (c: t): Ty.t =
+  try NameM.find x c.locals
+  with Not_found -> raise (Unbound (sp, x))
+
+let lookup_global sp (x: Name.t) (c: t): Ty.poly =
+  try NameM.find x c.globals
+  with Not_found -> raise (Unbound (sp, x))
 
 (* Uf.find' lifted to contexts *)
 let find' x c = let uf, x = Uf.find' x c.uf in ({c with uf = uf}, x)
@@ -35,6 +60,18 @@ let add_rec_inst x t c =
 (* AppI.add lifted to contexts *)
 let add_app x fxs c = {c with apps = AppI.add x fxs c.apps}
 
+let trap sp x c = {c with trapped = MetaM.add x sp c.trapped}
+
+(* Contexts are passed statefully through all typechecking functions, but:
+   - .locals should behave more like Reader
+   - When entering a new scope, .trapped should be cleared
+   - When leaving a scope, the old .trapped should be restored and any metas
+     accumulated in .trapped should be returned
+   This helper wraps a stateful computation `f` with these behaviors. *)
+let locally (c: t) (f: t -> t * 'a): t * Span.t MetaM.t * 'a =
+  let c', x = f {c with trapped = MetaM.empty} in
+  ({c' with trapped = c.trapped; locals = c.locals}, c'.trapped, x)
+
 let show c =
   let open Show in
   let show_names = show_set NameS.elements Name.show in
@@ -51,6 +88,7 @@ let show c =
       Meta.show 
       (show_pair Name.show (show_list Meta.show))
   in
+  let show_trapped = show_map MetaM.bindings Meta.show Span.show in
   "{locals = " ^ show_locals c.locals ^
   "; globals = " ^ show_globals c.globals ^
   "; aliases = " ^ show_aliases c.aliases^
@@ -58,6 +96,7 @@ let show c =
   "; insts = " ^ show_insts c.insts ^
   "; rec_insts = " ^ show_rec_insts c.rec_insts ^
   "; apps = " ^ show_apps c.apps ^
+  "; trapped = " ^ show_trapped c.trapped ^
   "}"
 
 end
@@ -69,40 +108,6 @@ let extract_row = function Ty.Rec r -> Some r | _ -> None
 let extract_col = function Ty.Sum r -> Some r | _ -> None
 let build_row r = Ty.Rec r
 let build_col r = Ty.Sum r
-
-exception Unbound of Span.t * Name.t
-exception Mismatch of Ctx.t * Ty.t * Ty.t * string option
-exception RowDup of Ctx.t * Name.t * Ty.t
-
-let subst: (Span.t -> Name.t -> Ty.t) -> Ty.t -> Ty.t = fun f ->
-  let open Ty in
-  let rec go_row extract sp = function
-    | Nil as r -> r
-    | Open _ as r -> r
-    | Cons (m, r) -> Cons (m, go_row extract sp r)
-    | Closed x ->
-        match extract (f sp x).a with
-        | Some r -> r
-        | None -> assert false
-  in
-  let rec go t = 
-    let wrap ta = {t with a = ta} in
-    match t.a with
-    | Lit _ | Meta _ -> t
-    | Var x -> f t.span x
-    | Ptr (x, t) -> wrap (Ptr (x, go t))
-    | Lbl (x, t) -> wrap (Ptr (x, go t))
-    | Rec r -> wrap (build_row (go_row extract_row t.span r))
-    | Sum r -> wrap (build_col (go_row extract_col t.span r))
-    | Fun (ts, r) -> wrap (Fun (List.map go ts, go r))
-    | App (f, ts) -> wrap (App (f, List.map go ts))
-  in
-  go
-
-let apply: Ty.alias -> Ty.t list -> Ty.t = fun (args, t) ts ->
-  assert List.(length args = length ts);
-  let m = NameM.of_list (List.combine args ts) in
-  subst (fun _ x -> NameM.find x m) t
 
 (* Helper for `eapply` *)
 let rec eapply_row go m r: Meta.t NameM.t * 'a Ty.row =
@@ -531,9 +536,119 @@ let rec check_expr expr ty c =
   let c, t = infer_expr expr c in 
   unify ty t c
 
+(* Check if any metas in `escaping` appear in any local variables *)
+and check_escaping (escaping: Span.t MetaM.t) (c: Ctx.t): unit =
+  let occurs _x _t = failwith "todo" in
+  NameM.iter
+    (fun y t ->
+       MetaM.iter
+         (fun x sp -> if occurs x t then raise (Escaping (sp, y)))
+         escaping)
+    c.locals
+
 (* val infer : Expr.t -> Ctx.t -> Ctx.t * Ty.t *)
-and infer_expr _e _c =
-  raise Todo (* TODO *)
-  (*let open Node in
+and infer_expr e c =
+  let open Ty in
+  let open Expr in
+  let lit t = at (Lit (Name.id t)) in
+  let sp = e.span in
   match e.a with
-  |*)
+  | Int _ -> (c, lit "i64")
+  | Float _ -> (c, lit "f64")
+  | Str _s -> failwith "todo"
+  | Var x -> (c, lookup sp x c)
+  | Ref (x, e) ->
+      let c, t = infer_expr e c in
+      (trap sp x c, at ~sp (Ptr (Meta x, t)))
+  | Ind (e, i) ->
+      let c, ti = infer_expr i c in
+      let c = unify (lit "u64") ti c in
+      let c, te = infer_expr e c in
+      let r = at ~sp (Meta (Meta.fresh ())) in
+      let expected = at ~sp (Ptr (Meta (Meta.fresh ()), r)) in
+      (unify expected te c, r)
+  | Ann (e, t) -> (check_expr e t c, t)
+  | Defer (_e, _x, _t, _e1) -> failwith "todo"
+  | Inj (x, es) ->
+      let c, ts = infer_list es c in
+      (c, at ~sp (Sum (Cons (NameM.singleton x.a ts, Open (Meta.fresh ())))))
+  | Case (e, pes) ->
+      let r = at ~sp (Meta (Meta.fresh ())) in
+      let c, xts, wildcard =
+        List.fold_left
+          (fun (_c, xts, _wildcard) (p, _e) ->
+             match p with
+             | Some (_ctr, _ts) -> failwith "todo"
+             | None -> (failwith "todo", xts, true))
+          (c, NameM.empty, false) pes
+      in
+      let te =
+        let col = if wildcard then Open (Meta.fresh ()) else Nil in
+        at ~sp:e.span (Sum (Cons (xts, col)))
+      in
+      (check_expr e te c, r)
+  | Proj (e, x) ->
+      let c, t = infer_expr e c in
+      let r = at (Meta (Meta.fresh ())) in
+      let expected =
+        at ~sp (Ty.Rec (Cons (
+          NameM.singleton x.a r,
+          Open (Meta.fresh ()))))
+      in
+      (unify expected t c, r)
+  | Rec xes ->
+      let c, xts =
+        NameM.fold 
+          (fun x e (c, xts) ->
+             let c, t = infer_expr e c in
+             (c, NameM.add x t xts))
+          xes (c, NameM.empty)
+      in
+      (c, at ~sp (Ty.Rec (Cons (xts, Nil))))
+  | App (f, es) ->
+      let c, tf = infer_expr f c in
+      let targs = [at ~sp:f.span (Meta (Meta.fresh ()))] in
+      let tret = at ~sp:f.span (Meta (Meta.fresh ())) in
+      let fab = at ~sp:f.span (Fun (targs, tret)) in
+      let c = unify fab tf c in
+      let c, ts = infer_list es c in
+      (unify_list targs ts c, tret)
+  | GApp (_f, _x, _xs) -> failwith "todo"
+  | Sus (l, x, e) ->
+      let r = at ~sp (Meta (Meta.fresh ())) in
+      let tl = at ~sp (Lbl (Meta x, r)) in
+      let c, escaping, _ =
+        Ctx.locally c (fun c -> (c
+          |> Ctx.extend l.a tl
+          |> trap sp x
+          |> check_expr e r, ()))
+      in
+      check_escaping escaping c;
+      (c, tl)
+  | Res e ->
+      let r = at ~sp (Meta (Meta.fresh ())) in
+      let expected = at ~sp (Lbl (Meta (Meta.fresh ()), r)) in
+      (check_expr e expected c, r)
+  | Let (x, t, r, e) ->
+      let c = check_expr r t c in
+      let c, escaping, t = 
+        Ctx.locally c (fun c -> c |> Ctx.extend x.a t |> infer_expr e)
+      in
+      check_escaping escaping c;
+      (c, t)
+  | Set (l, r, e) ->
+      let c, tl = infer_expr l c in
+      let c, tr = infer_expr r c in
+      let c = unify tl tr c in
+      infer_expr e c
+
+and infer_list es c =
+  let c, ts = 
+    List.fold_left
+      (fun (c, ts) e ->
+         let c, t = infer_expr e c in 
+         (c, t :: ts))
+      (c, [])
+      es
+  in
+  (c, List.rev ts)
