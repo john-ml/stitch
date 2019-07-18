@@ -570,17 +570,15 @@ and unify ?verbose:(verbose=false) want have c =
             c |> unify q r |> unify_list ss ts
       | _ -> raise (Mismatch (c, want, have, None))
 
-and unify_list wants haves c =
+and unify_list (wants: Ty.t list) (haves: Ty.t list) c =
   let open List in
   fold_left (fun c (s, t) -> unify s t c) c (combine wants haves)
 
-(* val check : Expr.t -> Ty.t -> Ctx.t -> Ctx.t *)
-let rec check_expr expr ty c =
+let rec check_expr (expr: Expr.t) (ty: Ty.t) (c: Ctx.t): Ctx.t =
   let c, t = infer_expr expr c in 
   unify ty t c
 
-(* val infer : Expr.t -> Ctx.t -> Ctx.t * Ty.t *)
-and infer_expr e c =
+and infer_expr (e: Expr.t) (c: Ctx.t): Ctx.t * Ty.t =
   let open Ty in
   let open Expr in
   let lit t = at (Lit (Name.id t)) in

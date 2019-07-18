@@ -2,30 +2,24 @@ open Misc
 open Syntax
 
 let _ =
-  let open Node in
-  let open Name in
-  let open Ty in
-  let open Meta in
-  let open Expr in
+  let open Ty in let open Notation in
+  let open Expr in let open Notation in
   let old_margin = Format.pp_get_margin Format.std_formatter () in
   Format.pp_set_margin Format.std_formatter 30;
   let dump e = Format.printf "%a@." Expr.pp e in
-  dump (mk_app (mk_var "f") [mk_proj (mk_inj "Some" []) "field"]);
+  dump (~$"f" *$ ["Some"*^[]*."field"]);
   let nested =
-    mk_set (mk_var "y")
-      (mk_ann
-        (mk_ref (fresh ()) (mk_ind (mk_var "x") (mk_int 3)))
-        (at (Ptr (Meta (fresh ()), at (Lit (id "i32"))))))
-      (mk_int 0)
+    ~$"y" += ~& (~$"x" *! ~!3) *:: ~*(~$$"i32") @@
+    ~!0
   in
-  dump (mk_app (mk_var "f") [mk_proj (mk_inj "Some" [nested]) "field"]);
-  dump (ite None (mk_var "x") (mk_int 0) (mk_int 1));
-  dump (ite None (mk_var "x") (mk_int 0) nested);
-  dump (ite None (mk_var "x") nested (mk_int 1));
-  dump (ite None (mk_var "x") nested nested);
-  dump (ite None nested (mk_int 0) (mk_int 1));
-  dump (ite None nested (mk_int 0) nested);
-  dump (ite None nested nested (mk_int 1));
+  dump (~$"f"*$["Some"*^[nested]*."field"]);
+  dump (ite None ~$"x" ~!0 ~!1);
+  dump (ite None ~$"x" ~!0 nested);
+  dump (ite None ~$"x" nested ~!1);
+  dump (ite None ~$"x" nested nested);
+  dump (ite None nested ~!0 ~!1);
+  dump (ite None nested ~!0 nested);
+  dump (ite None nested nested ~!1);
   dump (ite None nested nested nested);
   Format.pp_set_margin Format.std_formatter old_margin
 
@@ -177,8 +171,6 @@ let _ =
          (at (Meta y)))
 
 let _ =
-  let open Node in
-  let open Name in
   let open Typing in
   let open Ty in let open Notation in
   let open Expr in let open Notation in
@@ -192,6 +184,7 @@ let _ =
     ("x" *: !?() -= ~!3 @@
      "y" *: !?() -= ~%0.1 @@
      ~$"x");
-  dump_ctx_infer ~succeeds:false (~%0.1 *:: at (Lit (id "i64")));
-  dump_ctx_infer ~succeeds:false (~!1 *:: at (Lit (id "f64")));
-  dump_ctx_infer ~succeeds:true (~!1 *:: at (Lit (id "i64")))
+  dump_ctx_infer ~succeeds:false (~%0.1 *:: ~$$"i64");
+  dump_ctx_infer ~succeeds:false (~!1 *:: ~$$"f64");
+  dump_ctx_infer ~succeeds:true (~!1 *:: ~$$"i64");
+

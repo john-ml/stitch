@@ -131,7 +131,12 @@ let compare l r =
   go l.a r.a
 
 module Notation = struct
-  let ( !? ) _ = Node.at (Meta (Meta.fresh ()))
+  open Node
+  let ( ~$$ ) t = at (Lit (Name.id t))
+  let ( !? ) _ = at (Meta (Meta.fresh ()))
+  let ( @-> ) ts r = at (Fun (ts, r))
+  let ( ~* ) t = at (Ptr (Meta (Meta.fresh ()), t))
+  let ( ~... ) t = at (Lbl (Meta (Meta.fresh ()), t))
 end
 
 end (* Ty *)
@@ -193,14 +198,18 @@ module Notation = struct
   let ( ~$ ) = mk_var
   let ( ~! ) = mk_int
   let ( ~% ) = mk_float
+  let ( ~~ ) = mk_sus
+  let ( ~.. ) = mk_res
+  let ( ~& ) e = mk_ref (Meta.fresh ()) e
   let ( *: ) x t = (x, t)
-  let ( -= ) (x, t) = mk_let x t
-  let ( += ) = mk_set
   let ( *. ) = mk_proj
+  let ( *^ ) = mk_inj
   let ( *:: ) = mk_ann
   let ( *$ ) = mk_app
   let ( *@ ) (x, ts) = mk_gapp x ts
-  let ( *.. ) = mk_ind
+  let ( *! ) = mk_ind
+  let ( -= ) (x, t) = mk_let x t
+  let ( += ) = mk_set
 end
 
 type uop
