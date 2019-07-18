@@ -17,8 +17,8 @@ type t =
   ; (* Coinductive insts        *) rec_insts: TyS.t MetaM.t
   ; (* Metas for applications   *) apps: AppI.t              
   ; (* Metas that can't escape  *) trapped: Span.t MetaM.t
-  ; (* Insts for poly fn apps   *) poly_insts: Ty.t NameM.t MetaM.t
-  ; (* Trait requirements       *) constraints: TyS.t NameM.t
+  ; (* Insts for poly fn apps   *) poly_insts: MetaS.t MetaM.t
+  ; (* Trait requirements       *) constraints: MetaS.t NameM.t
   }
 
 exception Unbound of Span.t * Name.t
@@ -26,10 +26,12 @@ exception Mismatch of t * Ty.t * Ty.t * string option
 exception RowDup of t * Name.t * Ty.t
 exception Escaping of Span.t * Name.t
 
-let require (trait: Name.t) (t: Ty.t) (c: t): t =
+let require (x: Meta.t) (trait: Name.t) (c: t): t =
   {c with constraints =
      NameM.update trait
-      (function | Some ts -> Some (TyS.add t ts) | None -> Some (TyS.singleton t))
+      (function
+       | Some xs -> Some (MetaS.add x xs)
+       | None -> Some (MetaS.singleton x))
       c.constraints}
 
 let extend (x: Name.t) (t: Ty.t) (c: t): t =
@@ -43,7 +45,7 @@ let lookup_global sp (x: Name.t) (c: t): Ty.poly =
   try NameM.find x c.globals
   with Not_found -> raise (Unbound (sp, x))
 
-(* Uf.find' lifted to contexts *)
+(* Uf.find(') lifted to contexts *)
 let find' x c = let uf, x = Uf.find' x c.uf in ({c with uf = uf}, x)
 
 (* Uf.union lifted to contexts *)
@@ -56,21 +58,62 @@ let add_rec_inst x t c =
      MetaM.update x
        (function Some s -> Some (TyS.add t s) | None -> Some (TyS.singleton t))
        c.rec_insts}
+let add_poly_inst x (xs: MetaS.t) c =
+  {c with poly_insts = MetaM.add x xs c.poly_insts}
 
 (* AppI.add lifted to contexts *)
 let add_app x fxs c = {c with apps = AppI.add x fxs c.apps}
 
 let trap sp x c = {c with trapped = MetaM.add x sp c.trapped}
 
+let occurs (x: Meta.t) (t: Ty.t) (c: t): bool =
+  let open Ty in
+  let visited = ref MetaS.empty in
+  let x = Uf.find x c.uf in
+  let rec go_row go go_elt = function
+   | Nil | Closed _ -> false
+   | Open x -> go (at (Meta x))
+   | Cons (xts, r) -> NameM.exists (fun _ -> go_elt) xts || go_row go go_elt r
+  in
+  let rec go (t: Ty.t) =
+    match t.a with
+    | Lit _ | Var _ -> false
+    | Ptr (r, t) | Lbl (r, t) -> go (at r) || go t
+    | Rec r -> go_row go go r
+    | Sum r -> go_row go (List.exists go) r
+    | Fun (ts, r) -> List.exists go ts || go r
+    | App (_, ts) -> List.exists go ts
+    | Meta y ->
+        let y = Uf.find y c.uf in
+        if Meta.equal x y then true else
+        if MetaS.mem y !visited then false else begin
+          visited := MetaS.add y !visited;
+          try go (MetaM.find y c.insts)
+          with Not_found -> false
+        end
+  in
+  go t
+
+(* Check if any metas in `escaping` appear in any local variables *)
+let check_escaping (escaping: Span.t MetaM.t) (c: t): unit =
+  NameM.iter
+    (fun y t ->
+       MetaM.iter
+         (fun x sp -> if occurs x t c then raise (Escaping (sp, y)))
+         escaping)
+    c.locals
+
 (* Contexts are passed statefully through all typechecking functions, but:
    - .locals should behave more like Reader
    - When entering a new scope, .trapped should be cleared
    - When leaving a scope, the old .trapped should be restored and any metas
-     accumulated in .trapped should be returned
+     accumulated in .trapped should be checked
    This helper wraps a stateful computation `f` with these behaviors. *)
-let locally (c: t) (f: t -> t * 'a): t * Span.t MetaM.t * 'a =
+let locally (c: t) (f: t -> t * 'a): t * 'a =
   let c', x = f {c with trapped = MetaM.empty} in
-  ({c' with trapped = c.trapped; locals = c.locals}, c'.trapped, x)
+  let c = {c' with trapped = c.trapped; locals = c.locals} in
+  check_escaping c'.trapped c;
+  (c, x)
 
 let show c =
   let open Show in
@@ -536,16 +579,6 @@ let rec check_expr expr ty c =
   let c, t = infer_expr expr c in 
   unify ty t c
 
-(* Check if any metas in `escaping` appear in any local variables *)
-and check_escaping (escaping: Span.t MetaM.t) (c: Ctx.t): unit =
-  let occurs _x _t = failwith "todo" in
-  NameM.iter
-    (fun y t ->
-       MetaM.iter
-         (fun x sp -> if occurs x t then raise (Escaping (sp, y)))
-         escaping)
-    c.locals
-
 (* val infer : Expr.t -> Ctx.t -> Ctx.t * Ty.t *)
 and infer_expr e c =
   let open Ty in
@@ -576,10 +609,23 @@ and infer_expr e c =
       let r = at ~sp (Meta (Meta.fresh ())) in
       let c, xts, wildcard =
         List.fold_left
-          (fun (_c, xts, _wildcard) (p, _e) ->
+          (fun (c, xts, wildcard) (p, e) ->
              match p with
-             | Some (_ctr, _ts) -> failwith "todo"
-             | None -> (failwith "todo", xts, true))
+             | Some (ctr, yts) ->
+                 let c, _ = Ctx.locally c (fun c ->
+                   let c =
+                     List.fold_left
+                       (fun c (y, t) -> extend y.a t c)
+                       c yts
+                   in
+                   (check_expr e r c, ()))
+                 in
+                 (c, NameM.add ctr.a (List.map snd yts) xts, wildcard)
+             | None ->
+                 let c, _ =
+                   Ctx.locally c (fun c -> (c |> check_expr e r, ()))
+                 in
+                 (c, xts, true))
           (c, NameM.empty, false) pes
       in
       let te =
@@ -607,35 +653,42 @@ and infer_expr e c =
       (c, at ~sp (Ty.Rec (Cons (xts, Nil))))
   | App (f, es) ->
       let c, tf = infer_expr f c in
-      let targs = [at ~sp:f.span (Meta (Meta.fresh ()))] in
-      let tret = at ~sp:f.span (Meta (Meta.fresh ())) in
+      let targs = List.map (fun e -> at ~sp:e.span (Meta (Meta.fresh ()))) es in
+      let tret = at ~sp (Meta (Meta.fresh ())) in
       let fab = at ~sp:f.span (Fun (targs, tret)) in
       let c = unify fab tf c in
       let c, ts = infer_list es c in
       (unify_list targs ts c, tret)
-  | GApp (_f, _x, _xs) -> failwith "todo"
-  | Sus (l, x, e) ->
-      let r = at ~sp (Meta (Meta.fresh ())) in
-      let tl = at ~sp (Lbl (Meta x, r)) in
-      let c, escaping, _ =
-        Ctx.locally c (fun c -> (c
-          |> Ctx.extend l.a tl
-          |> trap sp x
-          |> check_expr e r, ()))
+  | GApp (f, x, es) ->
+      let (ty_binds: NameS.t NameM.t), tf = lookup_global sp f.a c in
+      let (m: Meta.t NameM.t), tf = eapply tf in
+      let new_metas = m |> NameM.bindings |> List.map snd |> MetaS.of_list in
+      let c = add_poly_inst x new_metas c in
+      let targs = List.map (fun e -> at ~sp:e.span (Meta (Meta.fresh ()))) es in
+      let tret = at ~sp (Meta (Meta.fresh ())) in
+      let fab = at ~sp:f.span (Fun (targs, tret)) in
+      let c = unify fab tf c in
+      let c, ts = infer_list es c in
+      let c = unify_list targs ts c in
+      let c =
+        NameM.fold (fun x -> NameS.fold (require (NameM.find x m))) ty_binds c
       in
-      check_escaping escaping c;
-      (c, tl)
+      (c, tret)
+  | Sus (l, x, e) ->
+      let te = at ~sp (Meta (Meta.fresh ())) in
+      let tl = at ~sp (Lbl (Meta x, te)) in
+      Ctx.locally c (fun c ->
+        let c = c |> Ctx.extend l.a tl |> trap sp x |> check_expr e te in
+        (c, tl))
   | Res e ->
       let r = at ~sp (Meta (Meta.fresh ())) in
       let expected = at ~sp (Lbl (Meta (Meta.fresh ()), r)) in
       (check_expr e expected c, r)
   | Let (x, t, r, e) ->
       let c = check_expr r t c in
-      let c, escaping, t = 
-        Ctx.locally c (fun c -> c |> Ctx.extend x.a t |> infer_expr e)
-      in
-      check_escaping escaping c;
-      (c, t)
+      Ctx.locally c (fun c -> c
+        |> Ctx.extend x.a t
+        |> infer_expr e)
   | Set (l, r, e) ->
       let c, tl = infer_expr l c in
       let c, tr = infer_expr r c in
