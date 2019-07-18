@@ -17,7 +17,7 @@ type t =
   ; (* Coinductive insts        *) rec_insts: TyS.t MetaM.t
   ; (* Metas for applications   *) apps: AppI.t              
   ; (* Metas that can't escape  *) trapped: Span.t MetaM.t
-  ; (* Insts for poly fn apps   *) poly_insts: MetaS.t MetaM.t
+  ; (* Insts for poly fn apps   *) poly_insts: Meta.t NameM.t MetaM.t
   ; (* Trait requirements       *) constraints: MetaS.t NameM.t
   }
 
@@ -36,7 +36,10 @@ let require (x: Meta.t) (trait: Name.t) (c: t): t =
 
 let extend (x: Name.t) (t: Ty.t) (c: t): t =
   {c with locals = NameM.add x t c.locals}
-    
+
+let extend_global (x: Name.t) (t: Ty.poly) (c: t): t =
+  {c with globals = NameM.add x t c.globals}
+
 let lookup sp (x: Name.t) (c: t): Ty.t =
   try NameM.find x c.locals
   with Not_found -> raise (Unbound (sp, x))
@@ -58,8 +61,8 @@ let add_rec_inst x t c =
      MetaM.update x
        (function Some s -> Some (TyS.add t s) | None -> Some (TyS.singleton t))
        c.rec_insts}
-let add_poly_inst x (xs: MetaS.t) c =
-  {c with poly_insts = MetaM.add x xs c.poly_insts}
+let add_poly_inst x (xts: Meta.t NameM.t) c =
+  {c with poly_insts = MetaM.add x xts c.poly_insts}
 
 (* AppI.add lifted to contexts *)
 let add_app x fxs c = {c with apps = AppI.add x fxs c.apps}
@@ -132,6 +135,9 @@ let show c =
       (show_pair Name.show (show_list Meta.show))
   in
   let show_trapped = show_map MetaM.bindings Meta.show Span.show in
+  let show_metas = show_set MetaS.elements Meta.show in
+  let show_poly_insts = show_metam (show_namem Meta.show) in
+  let show_constraints = show_namem show_metas in
   "{locals = " ^ show_locals c.locals ^
   "; globals = " ^ show_globals c.globals ^
   "; aliases = " ^ show_aliases c.aliases^
@@ -140,6 +146,8 @@ let show c =
   "; rec_insts = " ^ show_rec_insts c.rec_insts ^
   "; apps = " ^ show_apps c.apps ^
   "; trapped = " ^ show_trapped c.trapped ^
+  "; poly_insts = " ^ show_poly_insts c.poly_insts ^
+  "; constraints = " ^ show_constraints c.constraints ^
   "}"
 
 end
@@ -660,8 +668,7 @@ and infer_expr (e: Expr.t) (c: Ctx.t): Ctx.t * Ty.t =
   | GApp (f, x, es) ->
       let (ty_binds: NameS.t NameM.t), tf = lookup_global sp f.a c in
       let (m: Meta.t NameM.t), tf = eapply tf in
-      let new_metas = m |> NameM.bindings |> List.map snd |> MetaS.of_list in
-      let c = add_poly_inst x new_metas c in
+      let c = add_poly_inst x m c in
       let targs = List.map (fun e -> at ~sp:e.span (Meta (Meta.fresh ()))) es in
       let tret = at ~sp (Meta (Meta.fresh ())) in
       let fab = at ~sp:f.span (Fun (targs, tret)) in

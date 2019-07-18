@@ -188,7 +188,7 @@ let mk_case x arms = Node.at (Case (x, arms))
 let mk_proj x field = Node.at (Proj (x, Node.at (Name.id field)))
 let mk_rec xes = Node.at (Rec (NameM.of_list xes))
 let mk_app f xs = Node.at (App (f, xs))
-let mk_gapp f x xs = Node.at (GApp (f, x, xs))
+let mk_gapp f x xs = Node.at (GApp (Node.at (Name.id f), x, xs))
 let mk_sus l x e = Node.at (Sus (Node.at (Name.id l), x, e))
 let mk_res e = Node.at (Res e)
 let mk_let x t e1 e = Node.at (Let (Node.at (Name.id x), t, e1, e))
@@ -206,7 +206,8 @@ module Notation = struct
   let ( *^ ) = mk_inj
   let ( *:: ) = mk_ann
   let ( *$ ) = mk_app
-  let ( *@ ) (x, ts) = mk_gapp x ts
+  let ( *@ ) (f, x) es = mk_gapp f x es
+  let ( *@@ ) f es = mk_gapp f (Meta.fresh ()) es
   let ( *! ) = mk_ind
   let ( -= ) (x, t) = mk_let x t
   let ( += ) = mk_set
@@ -279,7 +280,7 @@ let ite (sp: Span.t) (p: t) (a: t) (b: t): t =
   let open Name in
   at ~sp (
     Case (
-      at ~sp:p.span (App (at ~sp:p.span (Var (id "__bool__")), [p])),
+      at ~sp:p.span (GApp (at ~sp:p.span (id "__bool__"), Meta.fresh (), [p])),
       [ Some (at (internal "true"), []), a
       ; Some (at (internal "false"), []), b
       ]))
@@ -328,23 +329,23 @@ let env: Ty.poly NameM.t =
   let open Node in
   let open Ty in
   let open Name in
-  let a = at (Var (id "A")) in
-  let ptr_a = at (Ptr (Var (id "R"), a)) in
-  let tbool = at (Var (id "bool")) in
-  let un trait = (binds [id "A", [id trait]], at (Fun ([a], a))) in
-  let bin trait = (binds [id "A", [id trait]], at (Fun ([a; a], a))) in
+  let a = at (Var (id "a")) in
+  let ptr_a = at (Ptr (Var (id "r"), a)) in
+  let tbool = at (App (id "bool", [])) in
+  let un trait = (binds [id "a", [id trait]], at (Fun ([a], a))) in
+  let bin trait = (binds [id "a", [id trait]], at (Fun ([a; a], a))) in
   of_list
     [ uop_name Neg, un "num"
     ; uop_name Not, un "log"
-    ; uop_name New, (binds [id "R", []; id "A", []], at (Fun ([a], ptr_a)))
-    ; uop_name Del, (binds [id "R", []; id "A", []], at (Fun ([ptr_a], a)))
+    ; uop_name New, (binds [id "r", []; id "a", []], at (Fun ([a], ptr_a)))
+    ; uop_name Del, (binds [id "r", []; id "a", []], at (Fun ([ptr_a], a)))
     ; bop_name Add, bin "num"
     ; bop_name Sub, bin "num"
     ; bop_name Mul, bin "num"
     ; bop_name Div, bin "num"
     ; bop_name And, bin "log"
     ; bop_name Or, bin "log"
-    ; id "__bool__", (binds [id "A", [id "bool"]], at (Fun ([a], tbool)))
+    ; id "__bool__", (binds [id "a", [id "bool"]], at (Fun ([a], tbool)))
     ]
 
 let show_pat: pat -> string = let open Node in function

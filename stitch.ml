@@ -58,7 +58,7 @@ let empty_ctx =
 let dump_ctx ~succeeds k =
   let open Typing in
   let failed () = if succeeds then failwith "Shouldn't have failed" else () in
-  try
+  begin try
     print_endline (Ctx.show (k empty_ctx));
     if not succeeds then failwith "Shouldn't have succeeded" else ()
   with
@@ -74,6 +74,8 @@ let dump_ctx ~succeeds k =
       "Field %s is duplicated in %s. Context: %s"
       (Name.show x) (Ty.show t) (Ctx.show c));
     failed ()
+  end;
+  print_endline ""
 
 let _ =
   let open Name in
@@ -176,6 +178,7 @@ let _ =
   let open Expr in let open Notation in
   let dump_ctx_infer ~succeeds e =
     dump_ctx ~succeeds (fun c ->
+      let c = {c with globals = Expr.env; aliases = Ty.env} in
       let c, t = infer_expr e c in
       print_endline (Ty.show t);
       c)
@@ -187,4 +190,8 @@ let _ =
   dump_ctx_infer ~succeeds:false (~%0.1 *:: ~$$"i64");
   dump_ctx_infer ~succeeds:false (~!1 *:: ~$$"f64");
   dump_ctx_infer ~succeeds:true (~!1 *:: ~$$"i64");
-
+  dump_ctx_infer ~succeeds:true ("__add__"*@@[~!1; ~!2]);
+  dump_ctx_infer ~succeeds:false ("__add__"*@@[~!1; ~%2.0]);
+  dump_ctx_infer ~succeeds:false ("__add__"*@@[~!1; ~!2; ~!3]);
+  dump_ctx_infer ~succeeds:true (ite None ~!0 ~!1 ("__add__"*@@[~!2; ~!3]));
+  dump_ctx_infer ~succeeds:false (ite None ~!0 ~!1 ("__add__"*@@[~%2.0; ~%3.0]))
