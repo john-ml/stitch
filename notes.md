@@ -1214,10 +1214,6 @@ bad(l *i32) *i32 = (tmp = &*l; tmp)
 - In `bad`, `tmp`'s metavariable unifies with the return type and thus
   could escape.
 
-### Inference with pointer subtyping
-
-?
-
 ### Choosing `C` when desugaring `defer`
 
 `e defer _` will try to choose the smallest context `C` that contains
@@ -1266,3 +1262,85 @@ cond_sum(p, i, j) =
     _ = del_alt(tmp);
     res
 ```
+
+### Generalization
+
+After typechecking some function body `e`, context will contain:
+- Equality constraints `?x ~ ?y` among metas
+- (Possibly recursive) instantiations for metas `?x -> t`
+- Constraints of the form `trait1 -> t, ..; ..`
+
+After generalization:
+- Each uninstantiated meta becomes a generic type variable
+- Each instantiated meta yields a type alias which closes over any
+  free variables in its instantiation, and uses of the instantiated
+  meta become application of that type alias
+- Constraints on non-type-variables must be solved (by running the `impl`
+  declarations as a restricted Prolog program) until all constraints are on
+  type variables only
+
+### Typechecking functions
+
+```bash
+f[a tr1 .., ..](x t1, ..) r = e
+```
+
+- What happens if infer stronger constraints than given in `[]`?
+  Implicitly adding those constraints is not ok, because then
+  type annotations can't be upper bounds
+- Use `_`?
+    - If `f[a]` then turn off generalization (assume the annotation
+      is exhaustive)
+    - If `f[a, _]` then use the annotation but still generalize
+      other type variables afterwards
+    - If `f[a tr1, _]` then keep generalization on but after
+      constraint solving, `tr1` must be the only constraint on `a`
+    - If `f[a tr1 _, _]`, then after constraint solving, the traits for `a`
+      must contain `tr1`
+
+### Compiling traits
+
+During typechecking, the compiler collects instantiations for
+each toplevel function definition so it can make monomorphs later.
+
+In the simplest case, the trait system restricts how certain toplevel
+functions can be instantiated and allows users to write their own
+monomorphs.
+
+e.g. overloading `__bool__`:
+
+```bash
+# Extends toplevel environment with __bool__ [a bool] a -> bool
+trait[a] a bool {__bool__ a -> bool}
+
+# Defines a monomorph for __bool__ with a := i32
+impl i32 bool {__bool__(x i32) bool = ...}
+
+# Defines a monomorph for __bool__ with a := f32
+impl f32 bool {__bool__(x f32) bool = ...}
+```
+
+This doesn't account for generic instances:
+
+```bash
+# Lift truthiness to lists
+impl[a](a bool) list(a) bool {__bool__(xs list(a)) bool = ...}
+```
+
+Generic instances define inference rules.
+
+### Compiling generics
+
+### Outline
+
+- Parse & desugar
+- Typecheck
+    - Instantiate all metas (as type aliases)
+    - At each global function application site:
+        - Generate instantiation list
+        - Resolve instances, etc.
+- Specialize
+    - Traverse call graph backwards and collect instantiations for each
+      toplevel function
+    - Make copies of every global function & instance
+    - Translate instantiation list into a reference to proper copy
