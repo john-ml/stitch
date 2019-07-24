@@ -401,9 +401,6 @@ let rec pp ff (e: t) =
 
 end (* Expr *)
 
-(* \ (A, ..) -> t *)
-type tdecl = NameS.t * Ty.t
-
 (* [A trait .., ..](x as t, ..) t = e *)
 type fdecl = Ty.binds * Expr.binds * Ty.t * Expr.t
 

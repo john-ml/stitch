@@ -1,4 +1,4 @@
-#include <stdio.h>
+#include <cstdio>
 #include <setjmp.h>
 #include <functional>
 
@@ -128,8 +128,8 @@ template<typename T> T g(bool p, T x) {
 // Stack-allocated
 template<typename T> void thrice(T f) { f(); f(); f(); }
 
-// Heap-allocated
-void twice(std::function<void()> f) { f(); f(); }
+// // Heap-allocated
+// void twice(std::function<void()> f) { f(); f(); }
 
 int main() {
   // Eq Int
@@ -188,8 +188,13 @@ int main() {
 
   // Closures
   {
-    int x = 0;
-    thrice([&x](){x += 1; printf("x = %d\n", x);});
+    int x[500] = {0};
+    thrice([&x](){
+      for (int i = 0; i < 500; ++i)
+        x[i] += 1;
+      printf("x = %d\n", x[0]);
+    });
+    // twice([&x](){x += 1; printf("x = %d\n", x);});
   }
 }
 

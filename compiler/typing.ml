@@ -727,3 +727,6 @@ and infer_list es c =
       es
   in
   (c, List.rev ts)
+
+(* *)
+val generalize : Ctx.t -> Ctx.t * 
