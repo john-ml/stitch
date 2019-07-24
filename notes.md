@@ -1,15 +1,5 @@
 # Stitch
 
-An expression-oriented language with strong type inference and
-an emphasis on performance.
-
-- (+1) Full type inference, even for recursive data types
-- (+1) Generics and a simple trait system
-- (+1) C's unboxed data / control over indirection
-- (+1) C's low runtime overhead (full specialization of traits & generics)
-- (+1) C's compiler optimizations (we transpile to it)
-- (-g<sub>64</sub>) C's memory safety
-
 ## Syntax and general overview
 
 Function definitions look like ML:
@@ -65,7 +55,7 @@ Type aliases can be recursive and can take arguments:
 ```bash
 type comparator(a) = (a, a) -> bool # function pointer
 type either(a, b) = Left(a) | Right(b)
-type list(a) = *(Nil | Cons(a, list(b)))
+type list(a) = *(Nil | Cons(a, list(a)))
 ```
 
 Only sum type constructors can start with capital letters.
@@ -80,7 +70,7 @@ checked_div(a i32, b i32) None | Some i32 =
 
 ### Branching
 
-Case expressions can be used to branch on sum types:
+Case expressions:
 
 ```bash
 type option(a) = None | Some(a)
@@ -111,24 +101,22 @@ categorize(i) =
   }
 ```
 
-### Labelled expressions
+The `else` clause is required.
 
-(In short: Labels are basically 0-argument continuations that
-don't require a closure.)
+### Labels
 
-In place of looping constructs, expressions can be labelled
-with `:` and `..`:
+Expressions can be labelled, allowing for iteration:
 
 ```bash
 mut_factorial(n i32) i32 =
   res = 1;
-  ..rec: # The if-expression below is labelled `rec`
+  rec: # The if-expression below is labelled `rec`
     if n == 1 then 
       res
     else
       res := res * n;
       n := n - 1;
-      ..rec # Next iteration
+      rec # Next iteration
 ```
 
 Expressions can only refer to labels in tail position, and a label is
@@ -148,128 +136,9 @@ For example, the following is allowed:
 
 ```bash
 arrays_equal(n u64, xs *i32, ys *i32) bool =
-  i := 0;
-  ..rec: i >= n || xs[i] == ys[i] && (i := i + 1; ..rec)
+  i = 0;
+  rec: i >= n || xs[i] == ys[i] && (i := i + 1; rec)
 ```
-
-Labelled expressions can also be stored in local variables
-representing suspended computations. For example, `goto fail`
-style error handling could be implemented as:
-
-```bash
-f(x i32, default i32) i32 =
-  fail = lbl: ( # No `..` => computation is suspended
-    _ = print("Something went wrong!");
-    _ = cleanup(y);
-    default
-  );
-  y = acquire_resource(x);
-  if !condition1(x, y) then ..fail else
-  z = action1();
-  if !condition2(x, y, z) then ..fail else
-  w = action2(y);
-  if !condition3(x, y, z, w) then ..fail else
-  res = action3(w);
-  _ = cleanup(y);
-  res
-```
-
-Labels can be passed as parameters to functions.
-For example, the following
-definition of `find` will return immediately once an item
-is found rather than bubbling the value `True` all the way
-back up the call stack:
-
-```bash
-find(x i32, xs list(i32)) bool =
-  # No `..` => computation is suspended
-  find_helper(x, xs, ret: True)
-
-# `success` is a label representing the suspended computation of a bool
-find_helper(x, xs, success ..bool) =
-  case *xs {
-    Nil -> False,
-    Cons(h, t) ->
-      if x == h then
-        # Return to `ret` in the definition of find
-        # As before, a label can only be evaluated in tail position
-        ..success 
-      else
-        find_helper(x, t, success)
-  }
-```
-
-(Though, this is just a contrived example. `find` is simple enough
-to be written as a normal loop:
-
-```bash
-find(x i32, xs list(i32)) bool =
-  ..rec:
-    case *xs {
-      Nil -> False,
-      Cons(h, t) -> x == h || (xs := t; ..rec)
-    }
-```
-)
-
-Note:
-- The type of the label need not be the same as the type of the value
-  being currently computed (when you evaluate the label, control
-  returns to a place where the label's type makes sense)
-- Functions can take more than one label as argument and
-  can be polymorphic over the label type
-- Labels can be stored in data structures
-
-As an example of all these:
-
-```bash
-categorize[a, b, c, d](
-  i i32,
-  s {small (Left(..a) | Right(..a)), medium ..b},
-  large ..c,
-  fail ..d
-) =
-  when {
-    i < 0 -> ..fail,
-    i < 3 -> 
-      case s.small {
-        Left(k) -> ..k,
-        Right(k) -> ..k
-      },
-    i < 6 -> ..s.medium,
-    else -> ..s.large
-  }
-```
-
-Despite all this, labels are subject to some restrictions.
-The following use of labels is not allowed:
-
-```bash
-bad(i i32) ..i32 = not_ok: i * i
-```
-
-The label `not_ok` 'escapes upwards'---after `bad` returns,
-`not_ok` contains information about a stack frame that no longer
-exists. The compiler performs a conservative escape analysis and
-only accepts programs in which it can prove that no label escapes
-upwards.
-
-This means rejecting some valid programs, like the following:
-
-```bash
-choose[a](p bool, l1 ..a, l2 ..a) ..a =
-  if p then l1 else l2
-
-f[a](ok ..a) ..a = choose(True, ok, not_ok: e)
-```
-
-`ok`'s lifetime is larger than that of `f`'s stack
-frame, because `f` receives it as an argument. Since
-the call to `choose`
-always returns `ok`, this program will never crash at runtime.
-Nonetheless, the escape analysis conservatively assumes
-that `choose` might return `not_ok` (whose lifetime is smaller
-than that of `f`'s stack frame) and so rejects `f`.
 
 ## Types
 
@@ -496,8 +365,8 @@ del_list(del_elt (a) -> {}, l list(a)) =
   case *l {
     Nil -> del l,
     Cons(l) ->
-      _ = del_elt(l.hd);
-      _ = del_list(l.tl);
+      del_elt(l.hd);
+      del_list(l.tl);
       del l
   }
 ```
@@ -559,12 +428,6 @@ sum_countdowns(i, j, k) =
   sum(countdown(i) defer xs -> del_list(del_noop, xs))
   + sum(countdown(j) defer xs -> del_list(del_noop, xs))
   + sum(countdown(k) defer xs -> del_list(del_noop, xs))
-
-sum(xs) =
-  case *xs {
-    nil _ -> 0,
-    cons xs -> xs.hd + sum(xs.tl)
-  }
 ```
 
 becomes
@@ -626,13 +489,13 @@ sum_countdowns(i, j, k) =
 Label invocation will also produce a slightly different translation:
 let `C [| e |]` represent a sequence of statements that contains 
 the subexpression `e` within a surrounding context `C`.
-`C [| e defer x -> e1 |]; ..l` becomes
+`C [| e defer x -> e1 |]; l` becomes
 
 ```
 x = e;
 C [| x |];
 _ = e1;
-..l
+l
 ```
 
 Since the label must be in tail position,
@@ -643,13 +506,13 @@ For example,
 ```bash
 sums(xs) =
   res = 0;
-  ..rec:
+  rec:
     case *xs {
       Nil -> res,
       Cons(xs) ->
         res := res + sum(countdown(xs.hd) defer del_alt);
         xs = xs.tl;
-        ..rec
+        rec
     }
 ```
 
@@ -658,7 +521,7 @@ becomes
 ```bash
 sums(xs) =
   res = 0;
-  ..rec:
+  rec:
     case *xs {
       Nil -> res,
       Cons(xs) ->
@@ -666,7 +529,7 @@ sums(xs) =
         res := res + sum(tmp);
         xs = xs.tl;
         _ = del_alt(tmp);
-        ..rec
+        rec
     }
 ```
 
@@ -677,13 +540,13 @@ The deferred action has to be pushed down into each branch:
 ```bash
 sums(p, xs) =
   res = 0;
-  ..rec:
+  rec:
     case *xs {
       Nil -> res,
       Cons(xs) ->
         res := res + sum(countdown(xs.hd) defer del_alt);
         xs = xs.tl;
-        if p then ..rec else 1
+        if p then rec else 1
     }
 ```
 
@@ -692,7 +555,7 @@ becomes
 ```bash
 sums(p, xs) =
   res = 0;
-  ..rec:
+  rec:
     case *xs {
       Nil -> res,
       Cons(xs) ->
@@ -701,35 +564,13 @@ sums(p, xs) =
         xs = xs.tl;
         if p then
           _ = del_alt(tmp);
-          ..rec
+          rec
         else
           res0 = 1;
           _ = del_alt(tmp);
           res0
     }
 ```
-
-This allows `defer` to work nicely with `goto fail`-style error handling.
-For example, the `goto fail`-style code from earlier can be rewritten as:
-
-```bash
-f(x i32, default i32) i32 =
-  fail = lbl: (
-    _ = print("Something went wrong!");
-    default
-  );
-  y = acquire_resource(x) defer cleanup;
-  if !condition1(x, y) then ..fail else
-  z = action1();
-  if !condition2(x, y, z) then ..fail else
-  w = action2(y);
-  if !condition3(x, y, z, w) then ..fail else
-  action3(w)
-```
-
-The call to `cleanup` will be properly pushed into each `..fail` leaf
-and `action3(w)` will become `res = action3(w); cleanup(y); res`,
-as in the code without `defer`.
 
 ## Notes for implementation
 
@@ -749,7 +590,7 @@ f(x) =
 yields
 
 ```bash
-f[a, b](x (Tag1 a | Tag2 B>) bool = ...
+f[a, b](x (Tag1 a | Tag2 b)) bool = ...
 ```
 
 The algorithm can't infer a column type because that would imply the `case`
@@ -1015,60 +856,10 @@ Normalizing all type aliases solves this by assigning a unique alias name
 for each specific application, and regular unification will take care of proving that
 substituting `\vec x` and `\vec y` into `u` and `v` actually produces equal infinite expansions.
 
-### Compiling labels
-
-```hs
--- [[e]] k compiles an e with continuation k into C statements
-[[_]] : Expr -> (Expr -> Expr) -> C.Stmts
-
--- Making labels
-[[ lbl: e ]] k =
-  jmp_buf lbl;
-  volatile _x = x; -- for each x currently in scope and mutated in e or k
-  if (setjmp(lbl)) {
-    __x = _x; -- for each _x
-    [[e]] id -- with __x replacing each x
-  } else {
-    __x = _x; -- for each _x
-    [[k lbl]] id -- with __x replacing each x
-  }
-
--- Using labels
-[[ ..lbl ]] _ = longjmp(lbl);
-```
-
-[More info on `volatile`s](https://stackoverflow.com/questions/7996825/why-volatile-works-for-setjmp-longjmp).
-
-For example,
-
-```hs
-f(x, y) = g(l1: x + 1, l2: y + 1, l3: x*y + 1)
-```
-
-becomes
-
-```C
-int f(int x, int y) {
-  jmp_buf l1;
-  if (setjmp(l1)) {
-    return x + 1;
-  } else {
-    jmp_buf l2;
-    if (setjmp(l2)) {
-      return y + 1;
-    } else {
-      jmp_buf l3;
-      if (setjmp(l3)) {
-        return x*y + 1;
-      } else {
-        return g(l1, l2, l3);
-      }
-    }
-  }
-}
-```
-
 ### Label escape analysis
+
+NOTE: Used to have 'labels as values' (0-argument continuations). Same tricks
+apply for escape analysis on pointers and closures.
 
 We might be able to trick the type checker into doing escape analysis.
 In the surface language each label has type `..T` for some type `T`.
@@ -1297,37 +1088,6 @@ f[a tr1 .., ..](x t1, ..) r = e
       constraint solving, `tr1` must be the only constraint on `a`
     - If `f[a tr1 _, _]`, then after constraint solving, the traits for `a`
       must contain `tr1`
-
-### Compiling traits
-
-During typechecking, the compiler collects instantiations for
-each toplevel function definition so it can make monomorphs later.
-
-In the simplest case, the trait system restricts how certain toplevel
-functions can be instantiated and allows users to write their own
-monomorphs.
-
-e.g. overloading `__bool__`:
-
-```bash
-# Extends toplevel environment with __bool__ [a bool] a -> bool
-trait[a] a bool {__bool__ a -> bool}
-
-# Defines a monomorph for __bool__ with a := i32
-impl i32 bool {__bool__(x i32) bool = ...}
-
-# Defines a monomorph for __bool__ with a := f32
-impl f32 bool {__bool__(x f32) bool = ...}
-```
-
-This doesn't account for generic instances:
-
-```bash
-# Lift truthiness to lists
-impl[a](a bool) list(a) bool {__bool__(xs list(a)) bool = ...}
-```
-
-Generic instances define inference rules.
 
 ### Compiling generics
 
