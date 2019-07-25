@@ -876,14 +876,13 @@ f(p bool, ys list(i32)) =
 Need to insert runtime code to trace from every other intermediate value in
 scope that might be aliased inside `xs` (including the return value).
 
-In this case, analysis can prove that `ys` is never aliased inside `xs`
-(`xs`'s meta /= `ys`'s meta because they never get unified), so we don't
-need to trace `ys`. The only thing to trace is the return value `xs`.
+In this case, these values are `ys` and the return value `xs`.
 
-So `xs` is immediately marked as 'escaping' at its very root.
-Then `xs` is traversed, immediately encounters a marked pointer, and
-doesn't deallocate anything.
-Finally `xs` gets traversed again and the root pointer's marker is reset.
+Super naively, there are 3 steps:
+1. Trace everything (traverse all of `xs` and all of `ys` and mark every pointer as 'escaping')
+2. Deallocate any nonecaping pointers inside `xs` (`xs` itself is marked as escaping, so this step terminates immediately)
+3. Retrace everything (both `xs` and `ys`) and reset every escaping mark
 
 Need to stuff some extra info in low bits of pointers:
 - `new`'d vs pointer to stack memory
+- 'escaping' vs 'non-escaping'
