@@ -348,9 +348,9 @@ bad4(p **i32) i32 =
   0
 ```
 
-### Allocation / deallocation
+### Allocation
 
-`new` and `del` can be used to allocate and deallocate heap memory:
+`new` can be used to allocate heap memory:
 
 ```bash
 type list(a) = *(Nil | Cons({hd a, tl list(a)}))
@@ -360,217 +360,18 @@ countdown(n i32) list(i32) =
     new Nil
   else
     new Cons({hd = n, tl = countdown(n - 1)})
-
-del_list(del_elt (a) -> {}, l list(a)) =
-  case *l {
-    Nil -> del l,
-    Cons(l) ->
-      del_elt(l.hd);
-      del_list(l.tl);
-      del l
-  }
 ```
 
-If they were functions, their types would be:
+If it was a function, `new`'s type would be:
 
 ```bash
 new [a] a -> *a
-del [a] *a -> {}
 ```
 
 `new`'s type encodes the fact that heap-allocation
 is the only way to comfortably allow pointers to escape
 upwards: it's impossible to write a terminating
 function of type `[a] a -> *a` without `new`.
-
-These types also illustrate how weak the safety checks
-for pointers are:
-- If `*a` corresponds to heap-allocated memory, there's no
-  guarantee that it holds a valid address and nothing forces
-  you to delete it when no longer useful
-- If `*a` corresponds to stack-allocated memory, nothing
-  stops you from trying to delete it
-
-### Defer
-
-Though the typechecker won't help you delete responsibly,
-`defer` tries to mitigate this by allowing you to write
-a constructor and its corresponding destructor in
-the same place; it will then automatically schedule the destructor
-to be run when the constructed value falls out of scope.
-
-Let `C [| e |]` represent an expression that contains 
-the subexpression `e` within a surrounding context `C`.
-Then, roughly, `C [| e defer g |]` becomes
-
-```bash
-tmp = e;
-res = C [| tmp |];
-_ = g(tmp);
-res
-```
-
-and `C [| e defer x -> e1 |]` becomes
-
-```bash
-x = e;
-res = C [| x |];
-_ = e1;
-res
-```
-
-For example,
-
-```bash
-del_noop(_) = {}
-
-sum_countdowns(i, j, k) =
-  sum(countdown(i) defer xs -> del_list(del_noop, xs))
-  + sum(countdown(j) defer xs -> del_list(del_noop, xs))
-  + sum(countdown(k) defer xs -> del_list(del_noop, xs))
-```
-
-becomes
-
-```bash
-sum_countdowns(i, j, k) =
-  xs0 = countdown(i);
-  xs1 = countdown(j);
-  xs2 = countdown(k);
-  res = (
-    res = (
-      res = sum(xs0) + sum(xs1) + sum(xs2)
-      _ = del_list(del_noop, xs0);
-      res
-    );
-    _ = del_list(del_noop, xs1);
-    res
-  );
-  _ = del_list(del_noop, xs2);
-  res
-```
-
-The same example, written another way:
-
-```bash
-del_alt(xs) = del_list(del_noop, xs)
-sum_countdowns(i, j, k) =
-  xs = countdown(i) defer del_alt;
-  ys = countdown(j) defer del_alt;
-  zs = countdown(k) defer del_alt;
-  sum(xs) + sum(ys) + sum(zs)
-```
-
-becomes
-
-```bash
-sum_countdowns(i, j, k) =
-  tmp0 = countdown(i);
-  res = (
-    xs = tmp0;
-    tmp1 = countdown(j);
-    res = (
-      ys = tmp1;
-      tmp2 = countdown(k);
-      res = (
-        zs = tmp2;
-        sum(xs) + sum(ys) + sum(zs)
-      );
-      _ = del_alt(tmp2);
-      res
-    );
-    _ = del_alt(tmp1);
-    res
-  );
-  _ = del_alt(tmp0);
-  res
-```
-
-Label invocation will also produce a slightly different translation:
-let `C [| e |]` represent a sequence of statements that contains 
-the subexpression `e` within a surrounding context `C`.
-`C [| e defer x -> e1 |]; l` becomes
-
-```
-x = e;
-C [| x |];
-_ = e1;
-l
-```
-
-Since the label must be in tail position,
-the deferred action `e1` has to happen before invoking the label.
-
-For example,
-
-```bash
-sums(xs) =
-  res = 0;
-  rec:
-    case *xs {
-      Nil -> res,
-      Cons(xs) ->
-        res := res + sum(countdown(xs.hd) defer del_alt);
-        xs = xs.tl;
-        rec
-    }
-```
-
-becomes
-
-```bash
-sums(xs) =
-  res = 0;
-  rec:
-    case *xs {
-      Nil -> res,
-      Cons(xs) ->
-        tmp = countdown(xs.hd);
-        res := res + sum(tmp);
-        xs = xs.tl;
-        _ = del_alt(tmp);
-        rec
-    }
-```
-
-Things get a bit more complicated if the final expression
-contains both branching and label invocations.
-The deferred action has to be pushed down into each branch:
-
-```bash
-sums(p, xs) =
-  res = 0;
-  rec:
-    case *xs {
-      Nil -> res,
-      Cons(xs) ->
-        res := res + sum(countdown(xs.hd) defer del_alt);
-        xs = xs.tl;
-        if p then rec else 1
-    }
-```
-
-becomes
-
-```bash
-sums(p, xs) =
-  res = 0;
-  rec:
-    case *xs {
-      Nil -> res,
-      Cons(xs) ->
-        tmp = countdown(xs.hd);
-        res := res + sum(tmp);
-        xs = xs.tl;
-        if p then
-          _ = del_alt(tmp);
-          rec
-        else
-          res0 = 1;
-          _ = del_alt(tmp);
-          res0
-    }
-```
 
 ## Notes for implementation
 
@@ -601,7 +402,7 @@ type---it's possible for a `case` expression with a catch-all pattern
 to be polymorphic in additional variant options while remaining exhaustive:
 
 ```bash
-f[a, b, c](x (Tag1 a | Tag2 b + c>) bool =
+f[a, b, c](x (Tag1 a | Tag2 b + c)) bool =
   case x {
     Tag1 _ -> True,
     Tag2 _ -> False,
@@ -942,8 +743,7 @@ bad() i32 =
   0 # ...yet never escapes the entire function body
 ```
 
-Fix: use the rules in "Choosing C when desugaring `defer`" to determine
-scope. At scope end for each pointer, check if the `*` metavariable
+At scope end for each pointer, check if the `*` metavariable
 shows up in the type of:
 - The final expression
 - The types of any variables in scope after scope end
@@ -965,7 +765,6 @@ Potential complications:
     - `..l: expression involving free labels l1 and l2` is safe because
       `l1` and `l2` must have larger lifetimes if you can talk about
       them inside `l`
-
 
 ### Compiling `*`
 
@@ -1005,55 +804,6 @@ bad(l *i32) *i32 = (tmp = &*l; tmp)
 - In `bad`, `tmp`'s metavariable unifies with the return type and thus
   could escape.
 
-### Choosing `C` when desugaring `defer`
-
-`e defer _` will try to choose the smallest context `C` that contains
-a statement `x = e'` or `x := e'` such that:
-- `e` is a subexpression of `e'`
-- `e'` is a simple expression (no `;`, `if`, `when`, `case`, `lbl:`, etc).
-
-If this is not possible, `defer` will choose the largest simple
-expression `e'` containing `e`.
-
-e.g. in
-
-```
-a = e4;
-x = (if p then y = (s; z = e3; e2); e1 else w);
-z = e5;
-e6
-```
-
-Suppose `e1 .. e5` are simple. Then:
-- Anything in `e1`, `e2` or `e6` -> `C` is the empty context `[[ ]]`
-- Anything in `e3` -> `C` is `z = [[_]]; e2`
-- Anything in `e4` -> `C` is `a = [[_]]; x = ...; z = e5; r`
-- Anything in `e5` -> `C` is `z = [[_]]; r`
-
-```bash
-cond_sum(p, i, j) =
-  if p then
-    sum(countdown(i) defer del_alt)
-  else
-    sum(countdown(j) defer del_alt)
-```
-
-becomes
-
-```bash
-cond_sum(p, i, j) =
-  if p then
-    tmp = countdown(i);
-    res = sum(tmp);
-    _ = del_alt(tmp);
-    res
-  else
-    tmp = countdown(j);
-    res = sum(tmp);
-    _ = del_alt(tmp);
-    res
-```
-
 ### Generalization
 
 After typechecking some function body `e`, context will contain:
@@ -1089,18 +839,51 @@ f[a tr1 .., ..](x t1, ..) r = e
     - If `f[a tr1 _, _]`, then after constraint solving, the traits for `a`
       must contain `tr1`
 
-### Compiling generics
 
-### Outline
+### Deallocation
 
-- Parse & desugar
-- Typecheck
-    - Instantiate all metas (as type aliases)
-    - At each global function application site:
-        - Generate instantiation list
-        - Resolve instances, etc.
-- Specialize
-    - Traverse call graph backwards and collect instantiations for each
-      toplevel function
-    - Make copies of every global function & instance
-    - Translate instantiation list into a reference to proper copy
+Escape analysis can prove that certain pointers will be inaccessible at
+scope end. All such pointers returned by `new` can be automatically
+deallocated.
+
+e.g. 
+
+```bash
+f() =
+  xs as list(i32) = countdown(i);
+  0
+  # Escape analysis proves that no pointer in xs is accessible after this
+  # function returns, so we should be able to recursively deallocate all of
+  # xs.
+
+countdown(i) list(i32) =
+  if i == 0 then new Nil else new Cons(i, countdown(i - 1))
+```
+
+But analysis can't definitively prove that things escape:
+
+```bash
+f(p bool, ys list(i32)) =
+  xs = new Nil;
+  if p then
+    ys
+    # xs can't escape, so deallocate
+  else
+    xs
+    # xs 100% escapes, but analysis can only say that it might
+```
+
+Need to insert runtime code to trace from every other intermediate value in
+scope that might be aliased inside `xs` (including the return value).
+
+In this case, analysis can prove that `ys` is never aliased inside `xs`
+(`xs`'s meta /= `ys`'s meta because they never get unified), so we don't
+need to trace `ys`. The only thing to trace is the return value `xs`.
+
+So `xs` is immediately marked as 'escaping' at its very root.
+Then `xs` is traversed, immediately encounters a marked pointer, and
+doesn't deallocate anything.
+Finally `xs` gets traversed again and the root pointer's marker is reset.
+
+Need to stuff some extra info in low bits of pointers:
+- `new`'d vs pointer to stack memory
