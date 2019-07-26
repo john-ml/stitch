@@ -955,5 +955,97 @@ We can delay tracing until the next scope end:
   delete both x and y without tracing anything. This probably ends up being
   similar to Tofte-Taplin regions?)
 
+Delay tracing ==> ok time, bad space
+Eager tracing ==> bad time, ok space
+
+But: delay tracing 100% => ok time; delay tracing a little bit could be worse
+if erase pointer metas (may trace more than necessary).
+
+Let `l` be the set of pointers reachable from relevant live values and `d`
+be the set of pointers reachable from dying values.
+
+Is pass 3 completely redundant? Right now each pointer must be associated with
+2 additional pieces of information:
+- live/dead
+- visited/unvisited
+
+3-pass algo is:
+1. Traverse l. Stop if visited. Set visited.
+2. Traverse d. Stop if dead or visited. Set dead.
+3. Traverse l. Stop if unvisited. Set unvisited.
+
+aka
+1. Set l all visited.
+2. Set d - l all dead.
+3. Set l all unvisited.
+
+Can we alternate between two 2-pass algos?
+
+Algo 1:
+1. Traverse l. Stop if visited. Set visited.
+2. Traverse d. Stop if dead or visited. Set dead.
+
+Without pass 3, things in l can never die because nothing sets them unvisited.
+For this to work, the 2nd 2-pass algo has to set some things as unvisited.
+After algo 1, visited is partially wrong but dead is correct. So the 1st pass
+can trust the info in dead. The only way to make use of this is to mark things
+as dead:
+
+1. Traverse d. Stop if dead. Set dead.
+
+Visited is only wrong when something currently dying (i.e. in d) has been set
+visited. Since we're traversing the things that are currently dying, we can
+right all of these wrongs by marking things unvisited as we go:
+
+1. Traverse d. Stop if dead. Set dead and unvisited.
+
+Now dead is wrong and needs to be fixed. We have to traverse l and set things
+live.
+
+2. Traverse l. ???. Set live.
+
+We need to detect cycles somehow. We could mark things as visited as we go...
+
+2. Traverse l. Stop if visited. Set visited and live.
+
+This will fail if "stop if visited" is wrong; i.e. we need
+v visited ==> everything reachable from v live.
+
+Well... let's call this invariant I and assume there are no `new`s between the
+run of algo 1 and algo 2. Assume I before any algo runs.
+
+[I] 1-1 [I] 1-2 [I] 2-1 [I???] 2-2 [I]
+
+Does
+
+1. Traverse d. Stop if dead. Set dead and unvisited.
+
+preserve I? Well... yeah. It can only set things unvisited, which make I hold
+vacuously.
+
+So the algos are:
+
+Algo 1:
+1. Traverse l. Stop if visited. Set visited.
+2. Traverse d. Stop if dead or visited. Set dead.
+
+Algo 2:
+1. Traverse d. Stop if dead. Set dead and unvisited.
+2. Traverse l. Stop if visited. Set visited and live.
+
+The intended invariants for every step are:
+
+Algo 1:
+1. v visited ==> v ~> w visited and live
+2. ???
+
+Algo 2:
+1. ???
+2. ???
+
 Issues:
 - Mutation?
+
+Need C++ structures:
+- `bitmap`: operations on bitmaps
+- `pool<N>`: mmap'd arena for items of size N + live/dead bitmap
