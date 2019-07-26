@@ -1008,22 +1008,7 @@ We need to detect cycles somehow. We could mark things as visited as we go...
 
 2. Traverse l. Stop if visited. Set visited and live.
 
-This will fail if "stop if visited" is wrong; i.e. we need
-v visited ==> everything reachable from v live.
-
-Well... let's call this invariant I and assume there are no `new`s between the
-run of algo 1 and algo 2. Assume I before any algo runs.
-
-[I] 1-1 [I] 1-2 [I] 2-1 [I???] 2-2 [I]
-
-Does
-
-1. Traverse d. Stop if dead. Set dead and unvisited.
-
-preserve I? Well... yeah. It can only set things unvisited, which make I hold
-vacuously.
-
-So the algos are:
+So we have
 
 Algo 1:
 1. Traverse l. Stop if visited. Set visited.
@@ -1033,15 +1018,59 @@ Algo 2:
 1. Traverse d. Stop if dead. Set dead and unvisited.
 2. Traverse l. Stop if visited. Set visited and live.
 
-The intended invariants for every step are:
+This doesn't work:
 
-Algo 1:
-1. v visited ==> v ~> w visited and live
-2. ???
+{
+  xs = [1, 2, 3]
+  {
+    {
+      ys = 4 : tail xs
+    } # visited = {1, 2, 3}, dead = 4
+    zs = 5 : tail xs
+  } # visited = 1, dead = 2, 3, 5
+  # Uh oh, {2, 3} gone
+}
 
-Algo 2:
-1. ???
-2. ???
+Visited isn't a correct cycle-breaker: there could be more things to mark live
+even if the current pointer is marked visited.
+
+1. Traverse d. Stop if dead. Set dead.
+2. Traverse l. Stop if visited. Set live and visited.
+
+{
+  xs = [1, 2, 3]
+  {
+    {
+      zs = 4 : tail xs
+    } # dead = 4, visited = {1, 2, 3}
+    ys = 5 : tail xs
+  } # dead = {5, 2, 3}, visited = {1, 2, 3}
+  # Uh oh, {2, 3} gone
+}
+
+1. Traverse d. Stop if dead. Set dead and unvisited.
+2. Traverse l. Stop if visited. Set live and visited.
+
+{
+  xs = [1, 2, 3]
+  {
+    {
+      zs = 4 : tail xs
+    } # dead = 4, visited = {1, 2, 3}
+    ys = 5 : tail xs
+  } # dead = {5, 2, 3}, visited = {1, 2, 3}
+  # Uh oh, {2, 3} gone
+}
+
+1. Traverse l. Stop if visited. Set visited.
+2. Traverse d. Stop if visited or dead. Set dead.
+3. Traverse l. Stop if unvisited. Set unvisited.
+
+vs
+
+1. Traverse d. Stop if dead. Set dead.
+2. Traverse l. Stop if visited. Set visited.
+3. Traverse l. Stop if unvisited. Set unvisited and live.
 
 Issues:
 - Mutation?
