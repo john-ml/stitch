@@ -842,9 +842,12 @@ f[a tr1 .., ..](x t1, ..) r = e
 
 ### Deallocation
 
-Escape analysis can prove that certain pointers will be inaccessible at
-scope end. All such pointers returned by `new` can be automatically
-deallocated.
+At every scope end, some pointers become inaccessible. Any inaccessible
+pointers returned by `new` need to be `del`eted.
+
+The escape analysis for `&` proves that certain pointers (and thus everything
+that they point to) are inaccessible at scope end. These can be recursively
+`del`eted.
 
 e.g. 
 
@@ -852,37 +855,105 @@ e.g.
 f() =
   xs as list(i32) = countdown(i);
   0
-  # Escape analysis proves that no pointer in xs is accessible after this
-  # function returns, so we should be able to recursively deallocate all of
-  # xs.
+  # xs is dead
 
 countdown(i) list(i32) =
   if i == 0 then new Nil else new Cons(i, countdown(i - 1))
 ```
 
-But analysis can't definitively prove that things escape:
+But the analysis sometimes says things are accessible when they actually
+aren't:
 
 ```bash
 f(p bool, ys list(i32)) =
-  xs = new Nil;
-  if p then
-    ys
-    # xs can't escape, so deallocate
-  else
-    xs
-    # xs 100% escapes, but analysis can only say that it might
+  xs = new Cons(1, ys);
+  ys
+  # xs 100% doesn't escape, but analysis says it might
 ```
 
-Need to insert runtime code to trace from every other intermediate value in
-scope that might be aliased inside `xs` (including the return value).
+and sometimes it's only half right:
 
-In this case, these values are `ys` and the return value `xs`.
+```bash
+f(p bool, ys list(i32)) =
+  xs = countdown(100);
+  if p then ys else xs
+  # xs may or may not escape depending on runtime value `p`
 
-Super naively, there are 3 steps:
-1. Trace everything (traverse all of `xs` and all of `ys` and mark every pointer as 'escaping')
-2. Deallocate any nonecaping pointers inside `xs` (`xs` itself is marked as escaping, so this step terminates immediately)
-3. Retrace everything (both `xs` and `ys`) and reset every escaping mark
+g(p bool, ys list(i32)) =
+  xs = countdown(100);
+  append(ys, drop(5, xs))
+  # Only part of xs actually escapes. The first 5 cons cells are inaccessible
+  # after this function returns
 
-Need to stuff some extra info in low bits of pointers:
-- `new`'d vs pointer to stack memory
-- 'escaping' vs 'non-escaping'
+drop(n, xs) =
+  if n == 0 then xs else case *xs {
+    Nil -> xs
+    Cons(_, xs) -> drop(n - 1, xs)
+  }
+
+append(xs, ys) =
+  case *xs {
+    Nil -> ys
+    Cons(x, xs) -> new Cons(x, append(xs, ys))
+  }
+```
+
+So we need to do some runtime checks to figure out which parts of `xs` are actually
+accessible and free the inaccessible stuff.
+
+One way to do that:
+1. Traverse every variable that will persist after scope end and might
+   be aliased inside `xs` and mark each pointer as 'accessible' along the way.
+2. Traverse `xs` until you hit a marked pointer. Along the way, `del` unmarked
+   `new`'d pointers.
+3. Traverse every variable from (1) again and clear each 'accessible' mark.
+
+So, in `f`, `meta(xs) ~ meta(ys)` and the analysis thinks that `xs` could contain
+aliases to `ys` (which it can't) or to the return value (which it can).
+1. `ys` is traversed in full, marking each pointer as 'accessible'. The return
+   value is also traversed: if `p`, then this traversal ends immediately since
+   the return value is just `ys` and thus already marked; otherwise, all of `xs`
+   is marked as accessible.
+2. If `p`, then `xs` is traversed in full and every pointer is freed. Otherwise,
+   `xs` immediately encounters an 'accessible' pointer and nothing is freed.
+3. `ys` is traversed in full and each mark is cleared. If not `p`, then all of `xs`
+   is traversed and cleared too.
+
+In `g`, something cool happens: with explicit pointer metas, `append` has
+type
+
+```bash
+append[p, q](xs list(p, i32), ys list(q, i32)) list(q, i32) = ...
+```
+
+So the compiler is able to prove that `xs` and `drop(5, xs)` never alias `ys`.
+1. The return value `append(ys, drop(5, xs))` is traced in full and that's it.
+   (Don't need to trace `ys`, because we know it can't alias!)
+2. Two intermediate values are possibly dead after this function returns: `xs`
+   and `drop(5, xs)`. Let's just say `xs` is traversed first: the first 5 cons
+   cells are unmarked, so they get freed. The 6th cons cell is marked so
+   the traversal stops immediately and nothing else is freed. `drop(5, xs)`'s
+   traversal stops immediately and nothing is freed.
+3. All marks in `append(ys, drop(5, xs))` are cleared.
+
+That's potentially a lot of scans at each scope end and space is needed to
+store the marks (you could stuff the mark bits inside pointers, but it's a bit
+weird: to check if you've seen *p = (*q, *r) before, you need to check if either
+bits q or r is marked, not p). Marking means that no part
+of the graph is scanned more than once (so the more sharing the better), but this
+still sucks.
+
+Only recursive types can have back-pointers, so you only need to mark/unmark
+the roots of recursive types (lists, trees, etc) while tracing. This probably
+won't help much since recursive types are basically all that pointers are
+used for.
+
+We can delay tracing until the next scope end:
+- Values that would need to be traced at current scope end might themselves be
+  eligible for deletion (e.g. if x only depends on y and at next scope end, y
+  doesn't depend on anything and y is eligible for deletion, then we can just
+  delete both x and y without tracing anything. This probably ends up being
+  similar to Tofte-Taplin regions?)
+
+Issues:
+- Mutation?
