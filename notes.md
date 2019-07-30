@@ -1227,9 +1227,34 @@ f(d, n) =
 Unclear how to infer these parameters using just the pointer metas.
 Best option is likely the queue gc thing.
 
+Wait, queue won't work either: can't just mark things that are in scope.
+e.g.
+
+```bash
+f(xs) =
+  ys = new Cons(1, xs);
+  xs
+
+g(zs, ws) =
+  f(zs);
+  f(ws)
+```
+
+if gc happens on `new` inside `f(ws)`, queue contains `ys` from `f(zs)`
+but only `ws` is in scope. Without `zs` to trace and keep `tail(ys)` alive,
+will end up erroneously freeing `zs`.
+
+So need accumulate things that might be freeable d and things that are
+keeping them alive l. As you go back up the call stack, some things in l
+might get added to d. In that case they should be removed from l.
+So things get moved from l to d as you go back up the call stack.
+
+Let s be the stuff in scope. The gc pass should
+free d - l
+
 Issues:
 - Mutation?
 
 Need C++ structures:
-- `bitmap`: operations on bitmaps
+- `bitmap`: operations on b-tree bitmap thing
 - `pool<N>`: mmap'd arena for items of size N + live/dead bitmap
