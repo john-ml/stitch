@@ -1066,11 +1066,166 @@ even if the current pointer is marked visited.
 2. Traverse d. Stop if visited or dead. Set dead.
 3. Traverse l. Stop if unvisited. Set unvisited.
 
-vs
+We don't need the extra bitmap:
 
-1. Traverse d. Stop if dead. Set dead.
-2. Traverse l. Stop if visited. Set visited.
-3. Traverse l. Stop if unvisited. Set unvisited and live.
+1. Traverse l. Stop if dead. Set dead.
+2. Traverse d. Stop if dead. Set dead.
+3. Traverse l. Stop if live. Set live.
+
+But for now let's use it: `mark(p)` for p in l, `trim(p)` for
+p in d, and `unmark(p)` for p in l.
+
+Also, the 'alias analysis' isn't as crude as I thought:
+
+```bash
+f(p, xs) =
+  ys = ...;
+  if p then xs else ys
+```
+
+during typechecking, can elaborate into
+
+```bash
+f(p, xs) =
+  ys = ...;
+  if p then (
+    res = xs;
+    trim(ys);
+    res
+  ) else (
+    res = ys;
+    mark(res);
+    trim(ys);
+    unmark(res);
+    res
+  )
+```
+
+the metas for `xs` and `ys` will eventually unify, but each case arm
+is checked before that. So at elaboration time, the arms don't influence
+each other. In then-branch, ys never aliases xs and can be trimd; in
+else-branch, ys shows up in the result and so the result has to be traced.
+
+How can we save on marks? Instead of bitmaps, we can have a header for each
+allocation tracking its 'nesting depth' in the execution trace. Maybe this
+would help avoid retracing stuff?
+
+Let `L(p)` be the nesting depth of some pointer `p`.
+
+Let `k` be the nesting depth of the current vertex in the traversal.
+
+1. mark(p, L(p)) for p in sort l on L: Stop if k <= L(p). Set L(p).
+2. trim(p, n) for p in d: Stop if k <= n or dead. Set dead.
+
+Then the above example becomes
+
+```bash
+# let d be the depth on entry into this function
+# d
+f(p, xs) =
+  # d + 1
+  ys = ...;
+  if p then
+    # d + 2
+    res = xs;
+    # End d + 2, now at d + 1: l = d = empty
+    # End d + 1, now at d: l = empty, d = ys
+    # 1: nothing to mark
+    # 2: trim ys
+    trim(ys, d);
+    res
+  else
+    # d + 2
+    res = ys;
+    # d + 1: l = d = empty
+    # d: l = res, d = ys
+    # 1: mark res
+    mark(res, d);
+    # 2: trim ys
+    trim(ys, d);
+    res
+```
+
+So we avoid two passes over `res` but 
+recursively escaping stuff still quadratic:
+
+```bash
+f(n) = if n == 0 then new Nil else new Cons(n, f(n - 1))
+```
+
+becomes
+
+```bash
+f(n) =
+  if n == 0 then
+    res = new Nil;
+    res
+  else
+    xs = f(n - 1);
+    res = new Cons(n, xs);
+    # d: l = res, d = xs
+    mark(res, d);
+    trim(xs, d);
+    res
+```
+
+`trim` will always immediately return, but `mark` will go through the whole list
+every time.
+
+Options:
+- Don't mark+trim at every single scope end: keep a queue of things to be
+  trimmed. Whenever `new` 'runs out of memory', mark everything in scope
+  and trim the entire queue at once. Like gc, but don't need to mark
+  every root (just the ones currently in scope) and don't need to traverse
+  entire heap to figure out what to free/preserve.
+- Somehow initialize every heap pointer with the correct nesting level, so
+  marking is never necessary.
+
+Magic initialization:
+
+```bash
+f(n) = if n == 0 then new Nil else new Cons(n, f(n - 1))
+```
+
+becomes
+
+```bash
+f(d, n) = if n == 0 then new d Nil else new d Cons(n, f(d, n - 1))
+```
+
+The extra parameter `d` represents the nesting depth. Then just need trim:
+
+```bash
+f(d, n) =
+  if n == 0 then
+    res = new d Nil;
+    res
+  else
+    xs = f(d, n - 1);
+    res = new d Cons(n, xs);
+    trim(xs, d);
+    res
+```
+
+...probably can't perfectly initialize and get rid of marking entirely.
+But can try to underestimate the nesting depth so that marking has a chance
+to cutoff earlier.
+
+```bash
+f(d, n) =
+  if n == 0 then
+    res = new d Nil;
+    res
+  else
+    xs = f(d, n - 1);
+    res = new d Cons(n, xs);
+    mark(res, d); # Does nothing
+    trim(xs, d);
+    res
+```
+
+Unclear how to infer these parameters using just the pointer metas.
+Best option is likely the queue gc thing.
 
 Issues:
 - Mutation?
