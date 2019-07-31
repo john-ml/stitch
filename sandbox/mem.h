@@ -16,6 +16,9 @@ constexpr size_t chunk_size_of(size_t w) {
   return sizeof(void*) > aligned ? sizeof(void*) : aligned;
 }
 
+template<typename T>
+constexpr size_t size_class_of = chunk_size_of(sizeof(T));
+
 struct free_list { free_list* next; };
 
 // Arena for items of size w where W_ = chunk_size_of(w)
@@ -23,11 +26,10 @@ template<size_t W_>
 class size_class {
 public:
   // max is the capacity in bytes
-  template<size_t W>
-  friend size_class<W>* init(size_t max);
+  static size_class<W_>* init(size_t max);
 
-  void* alloc();
-  void free(void* p);
+  static void* alloc(size_class<W_>*);
+  static void free(size_class<W_>*, void* p);
 
 public:
   struct header {
@@ -67,13 +69,11 @@ public:
 };
 
 // Hacky constructor.
-// TODO find a way to do this nicely
-// TODO is it even ok to call alloc/free as member functions?
-template<size_t W>
-size_class<W>* size_class_init(size_t max) {
-  using C = size_class<W>;
-  auto m = reinterpret_cast<size_class<W>*>(mmap(
-    nullptr, sizeof(size_class<W>) + max,
+template<size_t W_>
+size_class<W_>* size_class<W_>::init(size_t max) {
+  using C = size_class<W_>;
+  auto m = reinterpret_cast<C*>(mmap(
+    nullptr, sizeof(C) + max,
     PROT_READ | PROT_WRITE,
     MAP_PRIVATE | MAP_ANONYMOUS,
     -1, 0));
@@ -84,36 +84,40 @@ size_class<W>* size_class_init(size_t max) {
   return m;
 }
 
-template<size_t W>
-void* size_class<W>::alloc() {
-  if (free_.next == nullptr)
-    return end_ + sizeof(block) > cap_
+template<size_t W_>
+void* size_class<W_>::alloc(size_class<W_>* m) {
+  if (m->free_.next == nullptr)
+    return m->end_ + sizeof(block) > m->cap_
       ? nullptr
-      : of_block(set_free(end_++, false));
-  auto res = of_block(set_free(to_block(free_.next), false));
-  free_ = *(free_.next);
+      : of_block(set_free(m->end_++, false));
+  auto res = of_block(set_free(to_block(m->free_.next), false));
+  m->free_ = *(m->free_.next);
   return res;
 }
 
-template<size_t W>
-void size_class<W>::free(void* p) {
+template<size_t W_>
+void size_class<W_>::free(size_class<W_>* m, void* p) {
   (void) set_free(to_block(p), true);
   auto q = reinterpret_cast<free_list*>(p);
-  *q = free_;
-  free_.next = q;
+  *q = m->free_;
+  m->free_.next = q;
 }
 
 // Specialization will generate a global arena for every size class
 template<size_t W>
-auto arena = size_class_init<W>(1 << 30);
+auto arena = size_class<W>::init(1 << 30);
 
 // Allocate in the proper size class
-template<typename T> T* alloc()
-{ return reinterpret_cast<T*>(arena<chunk_size_of(sizeof(T))>->alloc()); }
+template<typename T> T* alloc() {
+  constexpr size_t w = size_class_of<T>;
+  return reinterpret_cast<T*>(size_class<w>::alloc(arena<w>));
+}
 
 // Free in the proper size class
-template<typename T> void free(T* p)
-{ arena<chunk_size_of(sizeof(T))>->free(p); }
+template<typename T> void free(T* p) {
+  constexpr size_t w = size_class_of<T>;
+  size_class<w>::free(arena<w>, p);
+}
 
 } // mem
 
