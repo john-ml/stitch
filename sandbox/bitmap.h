@@ -58,10 +58,10 @@ private:
     std::vector<tree> subs;
 
     tree() : occ{0} {}
-    tree(std::vector<tree>&& t) : occ{0}, subs{t} {
+    tree(tree&& t, bool _) : occ{0}, subs{std::move(t)} {
       auto nonzero = [](uint64_t x) { return x != 0; };
       occ[0] |= static_cast<uint64_t>(
-        std::any_of(t[0].occ.begin(), t[0].occ.end(), nonzero));
+        std::any_of(t.occ.begin(), t.occ.end(), nonzero));
     }
 
     bool get(size_t i) const { return util::get(occ[i / 64], i % 64); }
@@ -96,7 +96,7 @@ template<size_t W>
 void bitmap<W>::hi(size_t n) {
   int new_height = util::bsr(n) / width;
   for (; height_ < new_height; ++height_)
-    t_ = std::move(std::vector<tree>({t_}));
+    t_ = tree(std::move(t_), true);
   tree* t = &t_;
   for (int i = width * height_; i != 0; i -= width) {
     size_t m = util::substr(n, i, width);
