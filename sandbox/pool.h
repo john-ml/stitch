@@ -5,6 +5,20 @@
 #include <cstdint>
 #include <sys/mman.h>
 
+namespace mem {
+
+static constexpr size_t alignment = 8;
+
+// Force alignment + ensure that W >= sizeof(void*)
+// (need that space for free list's next pointers)
+constexpr size_t chunk_size_of(size_t w) {
+  auto aligned = w + (alignment - w%alignment);
+  return aligned > sizeof(void*) ? aligned : sizeof(void*);
+}
+
+struct free_list { free_list* next; };
+
+// Arena for items of size w where W_ = chunk_size_of(w)
 template<size_t W_>
 class size_class {
 public:
@@ -16,22 +30,17 @@ public:
   void free(void* p);
 
 public:
-  static constexpr size_t alignment = 8;
- 
   struct header {
     bool mark;
     bool free;
   }; // Assume sizeof(header) < alignment
 
-  // Force alignment and W >= alignment
-  static constexpr size_t W = []() constexpr {
-    auto W = W_ + alignment;
-    return W + (alignment - W%alignment);
-  }();
+  // Reserve space for header
+  static constexpr size_t W = W_ + alignment;
 
   using block = uint8_t[W];
 
-  // Conversions block <-> heap pointer
+  // block <-> heap pointer
 
   static void* of_block(block* p)
   { return reinterpret_cast<void*>(reinterpret_cast<char*>(p) + alignment); }
@@ -46,9 +55,7 @@ public:
 
   static block* set_free(block* p, bool b)
   { reinterpret_cast<header*>(p)->free = b; return p; }
-
-  struct free_list { free_list* next; };
-
+ 
 public:
   free_list free_;
   block* end_;
@@ -57,9 +64,11 @@ public:
   // x in free <=> reinterpret_cast<header*>(to_block(x))->free
   // end in [&data .. cap)
   // x in free ==> x in [&data .. cap) /\ x < end
+};
 
-}; // size_class
-
+// Hacky constructor.
+// TODO find a way to do this nicely
+// TODO is it even ok to call alloc/free as member functions?
 template<size_t W>
 size_class<W>* size_class_init(size_t max) {
   using C = size_class<W>;
@@ -97,7 +106,12 @@ void size_class<W>::free(void* p) {
 template<size_t W>
 auto arena = size_class_init<W>(1 << 30);
 
-#define ALLOC(T) (reinterpret_cast<T*>(arena<sizeof(T)>->alloc()))
-#define FREE(T, p) (arena<sizeof(T)>->free(p))
+template<typename T> T* alloc()
+{ return reinterpret_cast<T*>(arena<chunk_size_of(sizeof(T))>->alloc()); }
+
+template<typename T> void free(T* p)
+{ arena<chunk_size_of(sizeof(T))>->free(p); }
+
+} // mem
 
 #endif // POOL_INCLUDED_H
