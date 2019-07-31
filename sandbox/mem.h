@@ -1,5 +1,5 @@
-#ifndef POOL_INCLUDED_H
-#define POOL_INCLUDED_H
+#ifndef MEM_INCLUDED_H
+#define MEM_INCLUDED_H
 
 #include <cstddef>
 #include <cstdint>
@@ -13,7 +13,7 @@ static constexpr size_t alignment = 8;
 // (need that space for free list's next pointers)
 constexpr size_t chunk_size_of(size_t w) {
   auto aligned = w + (alignment - w%alignment);
-  return aligned > sizeof(void*) ? aligned : sizeof(void*);
+  return sizeof(void*) > aligned ? sizeof(void*) : aligned;
 }
 
 struct free_list { free_list* next; };
@@ -22,7 +22,7 @@ struct free_list { free_list* next; };
 template<size_t W_>
 class size_class {
 public:
-  // max is the capacity in bytes, not block units
+  // max is the capacity in bytes
   template<size_t W>
   friend size_class<W>* init(size_t max);
 
@@ -103,15 +103,18 @@ void size_class<W>::free(void* p) {
   free_.next = q;
 }
 
+// Specialization will generate a global arena for every size class
 template<size_t W>
 auto arena = size_class_init<W>(1 << 30);
 
+// Allocate in the proper size class
 template<typename T> T* alloc()
 { return reinterpret_cast<T*>(arena<chunk_size_of(sizeof(T))>->alloc()); }
 
+// Free in the proper size class
 template<typename T> void free(T* p)
 { arena<chunk_size_of(sizeof(T))>->free(p); }
 
 } // mem
 
-#endif // POOL_INCLUDED_H
+#endif // MEM_INCLUDED_H
