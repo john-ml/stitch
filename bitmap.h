@@ -13,22 +13,9 @@ namespace util {
 
 uint64_t bit(int i) { return (uint64_t)1 << i; }
 
-int bsf(uint64_t x) {
-  int i = 0;
-  while (x) {
-    x /= 2;
-    ++i;
-  }
-  return i;
-}
+int bsf(uint64_t x) { return __builtin_ctz(x); }
 
-int bsr(uint64_t x) {
-  int i = 63;
-  for (int i = 63; i > 0; --i)
-    if (x & bit(i))
-      return i;
-  return 0;
-}
+int bsr(uint64_t x) { return __builtin_clz(x); }
 
 bool get(uint64_t x, int i) { return 1 & x >> i; }
 
