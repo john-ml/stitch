@@ -9,6 +9,11 @@ namespace mem {
 
 static constexpr size_t alignment = 8;
 
+struct header {
+  bool mark;
+  bool free;
+}; // Assume sizeof(header) < alignment
+
 // Force alignment + ensure that W >= sizeof(void*)
 // (need that space for free list's next pointers)
 constexpr size_t chunk_size_of(size_t w) {
@@ -32,10 +37,6 @@ public:
   static void free(size_class<W_>*, void* p);
 
 public:
-  struct header {
-    bool mark;
-    bool free;
-  }; // Assume sizeof(header) < alignment
 
   // Reserve space for header
   static constexpr size_t W = W_ + alignment;
@@ -103,20 +104,46 @@ void size_class<W_>::free(size_class<W_>* m, void* p) {
   m->free_.next = q;
 }
 
+// ----------------------------------------
+
 // Specialization will generate a global arena for every size class
 template<size_t W>
 auto arena = size_class<W>::init(1 << 30);
 
 // Allocate in the proper size class
-template<typename T> T* alloc() {
+template<typename T>
+T* alloc() {
   constexpr size_t w = size_class_of<T>;
   return reinterpret_cast<T*>(size_class<w>::alloc(arena<w>));
 }
 
 // Free in the proper size class
-template<typename T> void free(T* p) {
+template<typename T>
+void free(T* p) {
   constexpr size_t w = size_class_of<T>;
   size_class<w>::free(arena<w>, p);
+}
+
+// Read flags
+
+template<typename T>
+bool get_free(T* p) {
+  constexpr size_t w = size_class_of<T>;
+  return reinterpret_cast<header*>(size_class<w>::to_block(p))->free;
+}
+
+template<typename T>
+bool get_mark(T* p) {
+  constexpr size_t w = size_class_of<T>;
+  return reinterpret_cast<header*>(size_class<w>::to_block(p))->mark;
+}
+
+// Write mark flag
+
+template<typename T>
+void set_mark(T* p, bool b) {
+  constexpr size_t w = size_class_of<T>;
+  reinterpret_cast<header*>(size_class<w>::to_block(p))->mark = b;
 }
 
 } // mem
