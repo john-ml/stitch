@@ -1,5 +1,15 @@
+// Automatic memory management
+
 #ifndef MEM_INCLUDED_H
 #define MEM_INCLUDED_H
+
+// TODO:
+// - Maintain n_free_, n_alive_, n_dying_
+// - Type-directed mark/prune
+// - If ever !n_alive_, prune everything in dying_
+// - If ever !n_dying_, alive_ = nullptr?
+
+#include "typing.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -8,99 +18,99 @@
 
 namespace mem {
 
-constexpr size_t alignment = 8;
+constexpr size_t alignment = sizeof(size_t);
 
-struct header {
-  bool mark;
-  bool free;
-}; // Assume sizeof(header) < alignment
-
-// Force alignment + ensure that W >= sizeof(void*)
-// (need that space for free list's next pointers)
-constexpr size_t chunk_size_of(size_t w) {
-  auto aligned = w + (alignment - w%alignment);
-  return std::max(sizeof(void*), w + alignment - w%alignment);
-}
+constexpr size_t aligned_size(size_t w)
+{ return w + (alignment - w%alignment); }
 
 template<typename T>
-constexpr size_t size_class_of = chunk_size_of(sizeof(T));
+constexpr size_t size_class_of = aligned_size(sizeof(T));
 
-struct free_list { free_list* next; };
+template<typename R, typename T>
+R cast(T x) { return reinterpret_cast<R>(x); }
 
-// Arena for items of size w where W_ = chunk_size_of(w)
-template<size_t W_>
+// Arena for items of size w where W = aligned_size(w)
+template<size_t W>
 class size_class {
 public:
   // max is the capacity in bytes
-  static size_class<W_>* init(size_t max);
+  static size_class<W>* init(size_t max);
 
-  static void* alloc(size_class<W_>*);
-  static void free(size_class<W_>*, void* p);
+  static void* alloc(size_class<W>*);
+  static void free(size_class<W>*, void* p);
 
   // Check if a pointer was allocated inside this heap
-  static bool exists(size_class<W_>*, void* p);
+  static bool exists(size_class<W>*, void* p);
 
 public:
-  // Reserve space for header
-  static constexpr size_t W = W_ + alignment;
+  struct block {
+    block* next_free;
+    block* next_dying;
+    block* next_alive;
+    bool free : 1;
+    bool dying : 1;
+    bool alive : 1;
+    bool mark : 1;
+    bool dying_skip : 1;
+    bool alive_skip : 1;
+    size_t _ : 8*sizeof(size_t) - 4;
+    uint8_t data[W];
+  };
+  static_assert(sizeof(block) % alignment == 0);
+  static_assert(offsetof(block, data) % alignment == 0);
 
-  // block <-> heap pointer <-> header
-  using block = uint8_t[W];
-
-  static void* of_block(block* p)
-  { return reinterpret_cast<void*>(reinterpret_cast<char*>(p) + alignment); }
+  static void* of_block(block* p) { return cast<void*>(&p->data); }
 
   static block* to_block(void* p)
-  { return reinterpret_cast<block*>(reinterpret_cast<char*>(p) - alignment); }
+  { return cast<block*>(cast<char*>(p) - offsetof(block, data)); }
 
-  static header* to_header(block* p) { return reinterpret_cast<header*>(p); }
-  static header* to_header(void* p) { return to_header(to_block(p)); }
- 
 public:
-  free_list* free_;
+  block* free_;
+  block* alive_;
+  block* dying_;
+  size_t n_free_;
+  size_t n_alive_;
+  size_t n_dying_;
   block* end_;
   block* cap_;
   block data_[0];
-  // Assuming x in [&data .. end),
-  //   x in free <=> reinterpret_cast<header*>(to_block(x))->free
-  //   end in [&data .. cap)
 };
 
 // Hacky constructor.
 template<size_t W_>
 size_class<W_>* size_class<W_>::init(size_t max) {
   using C = size_class<W_>;
-  auto m = reinterpret_cast<C*>(mmap(
+  auto m = cast<C*>(mmap(
     nullptr, sizeof(C) + max,
     PROT_READ | PROT_WRITE,
     MAP_PRIVATE | MAP_ANONYMOUS,
     -1, 0));
-  m->free_ = nullptr;
+  m->free_ = m->alive_ = m->dying_ = nullptr;
   m->end_ = &m->data_[0];
-  m->cap_ = reinterpret_cast<typename C::block*>(
-    max + reinterpret_cast<char*>(&m->data_[0]));
+  m->cap_ = cast<typename C::block*>(max + cast<char*>(&m->data_[0]));
   return m;
 }
 
 template<size_t W_>
 void* size_class<W_>::alloc(size_class<W_>* m) {
+  block* res;
   if (m->free_ == nullptr) {
     if (m->end_ + sizeof(block) > m->cap_)
       return nullptr;
-    to_header(m->end_)->free = false;
-    return of_block(m->end_++);
+    res = m->end_++;
+  } else {
+    res = m->free_;
+    m->free_ = m->free_->next_free;
   }
-  free_list* res = m->free_;
-  to_header(res)->free = false;
-  m->free_ = res->next;
-  return reinterpret_cast<void*>(res);
+  res->free = res->dying = res->alive = res->mark = false;
+  return of_block(res);
 }
 
 template<size_t W_>
 void size_class<W_>::free(size_class<W_>* m, void* p) {
-  to_header(p)->free = true;
-  auto q = reinterpret_cast<free_list*>(p);
-  q->next = m->free_;
+  block* q = to_block(p);
+  q->free = true;
+  q->next_free = m->free_;
   m->free_ = q;
 }
 
@@ -120,7 +130,7 @@ auto arena = size_class<W>::init(1 << 30);
 template<typename T>
 T* alloc() {
   constexpr size_t w = size_class_of<T>;
-  return reinterpret_cast<T*>(size_class<w>::alloc(arena<w>));
+  return cast<T*>(size_class<w>::alloc(arena<w>));
 }
 
 template<typename T>
@@ -135,19 +145,8 @@ bool exists(T* p) {
   return size_class<w>::exists(arena<w>, p);
 }
 
-// Read flags
-
 template<typename T>
-bool get_free(T* p) { return size_class<size_class_of<T>>::to_header(p)->free; }
-
-template<typename T>
-bool get_mark(T* p) { return size_class<size_class_of<T>>::to_header(p)->mark; }
-
-// Write mark flag
-
-template<typename T>
-void set_mark(T* p, bool b)
-{ size_class<size_class_of<T>>::to_header(p)->mark = b; }
+bool get_flags(T* p) { return size_class<size_class_of<T>>::to_block(p)->flags; }
 
 } // mem
 
