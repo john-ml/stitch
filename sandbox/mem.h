@@ -3,11 +3,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
 #include <sys/mman.h>
 
 namespace mem {
 
-static constexpr size_t alignment = 8;
+constexpr size_t alignment = 8;
 
 struct header {
   bool mark;
@@ -18,7 +19,7 @@ struct header {
 // (need that space for free list's next pointers)
 constexpr size_t chunk_size_of(size_t w) {
   auto aligned = w + (alignment - w%alignment);
-  return sizeof(void*) > aligned ? sizeof(void*) : aligned;
+  return std::max(sizeof(void*), w + alignment - w%alignment);
 }
 
 template<typename T>
@@ -36,14 +37,15 @@ public:
   static void* alloc(size_class<W_>*);
   static void free(size_class<W_>*, void* p);
 
-public:
+  // Check if a pointer was allocated inside this heap
+  static bool exists(size_class<W_>*, void* p);
 
+public:
   // Reserve space for header
   static constexpr size_t W = W_ + alignment;
 
+  // block <-> heap pointer --> header
   using block = uint8_t[W];
-
-  // block <-> heap pointer
 
   static void* of_block(block* p)
   { return reinterpret_cast<void*>(reinterpret_cast<char*>(p) + alignment); }
@@ -51,22 +53,17 @@ public:
   static block* to_block(void* p)
   { return reinterpret_cast<block*>(reinterpret_cast<char*>(p) - alignment); }
 
-  // Updating block flags
-
-  static block* set_mark(block* p, bool b)
-  { reinterpret_cast<header*>(p)->mark = b; return p; }
-
-  static block* set_free(block* p, bool b)
-  { reinterpret_cast<header*>(p)->free = b; return p; }
+  static header* to_header(block* p) { return reinterpret_cast<header*>(p); }
+  static header* to_header(void* p) { return to_header(to_block(p)); }
  
 public:
-  free_list free_;
+  free_list* free_;
   block* end_;
   block* cap_;
   block data_[0];
-  // x in free <=> reinterpret_cast<header*>(to_block(x))->free
-  // end in [&data .. cap)
-  // x in free ==> x in [&data .. cap) /\ x < end
+  // Assuming x in [&data .. end),
+  //   x in free <=> reinterpret_cast<header*>(to_block(x))->free
+  //   end in [&data .. cap)
 };
 
 // Hacky constructor.
@@ -78,30 +75,38 @@ size_class<W_>* size_class<W_>::init(size_t max) {
     PROT_READ | PROT_WRITE,
     MAP_PRIVATE | MAP_ANONYMOUS,
     -1, 0));
-  m->free_.next = nullptr;
-  m->end_ = reinterpret_cast<typename C::block*>(&m->data_);
+  m->free_ = nullptr;
+  m->end_ = &m->data_[0];
   m->cap_ = reinterpret_cast<typename C::block*>(
-    max + reinterpret_cast<char*>(&m->data_));
+    max + reinterpret_cast<char*>(&m->data_[0]));
   return m;
 }
 
 template<size_t W_>
 void* size_class<W_>::alloc(size_class<W_>* m) {
-  if (m->free_.next == nullptr)
-    return m->end_ + sizeof(block) > m->cap_
-      ? nullptr
-      : of_block(set_free(m->end_++, false));
-  auto res = of_block(set_free(to_block(m->free_.next), false));
-  m->free_ = *(m->free_.next);
-  return res;
+  if (m->free_ == nullptr) {
+    if (m->end_ + sizeof(block) > m->cap_)
+      return nullptr;
+    to_header(m->end_)->free = false;
+    return of_block(m->end_++);
+  }
+  free_list* res = m->free_;
+  to_header(res)->free = false;
+  m->free_ = res->next;
+  return reinterpret_cast<void*>(res);
 }
 
 template<size_t W_>
 void size_class<W_>::free(size_class<W_>* m, void* p) {
-  (void) set_free(to_block(p), true);
+  to_header(p)->free = true;
   auto q = reinterpret_cast<free_list*>(p);
-  *q = m->free_;
-  m->free_.next = q;
+  q->next = m->free_;
+  m->free_ = q;
+}
+
+template<size_t W_>
+bool size_class<W_>::exists(size_class<W_>* m, void* p) {
+  return &m->data_[0] <= p && p < m->end_;
 }
 
 // ----------------------------------------
@@ -127,24 +132,16 @@ void free(T* p) {
 // Read flags
 
 template<typename T>
-bool get_free(T* p) {
-  constexpr size_t w = size_class_of<T>;
-  return reinterpret_cast<header*>(size_class<w>::to_block(p))->free;
-}
+bool get_free(T* p) { return size_class<size_class_of<T>>::to_header(p)->free; }
 
 template<typename T>
-bool get_mark(T* p) {
-  constexpr size_t w = size_class_of<T>;
-  return reinterpret_cast<header*>(size_class<w>::to_block(p))->mark;
-}
+bool get_mark(T* p) { return size_class<size_class_of<T>>::to_header(p)->mark; }
 
 // Write mark flag
 
 template<typename T>
-void set_mark(T* p, bool b) {
-  constexpr size_t w = size_class_of<T>;
-  reinterpret_cast<header*>(size_class<w>::to_block(p))->mark = b;
-}
+void set_mark(T* p, bool b)
+{ size_class<size_class_of<T>>::to_header(p)->mark = b; }
 
 } // mem
 
