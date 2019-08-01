@@ -115,18 +115,24 @@ bool size_class<W_>::exists(size_class<W_>* m, void* p) {
 template<size_t W>
 auto arena = size_class<W>::init(1 << 30);
 
-// Allocate in the proper size class
+// size_class methods + automatically dispatch to proper arena by type
+
 template<typename T>
 T* alloc() {
   constexpr size_t w = size_class_of<T>;
   return reinterpret_cast<T*>(size_class<w>::alloc(arena<w>));
 }
 
-// Free in the proper size class
 template<typename T>
 void free(T* p) {
   constexpr size_t w = size_class_of<T>;
   size_class<w>::free(arena<w>, p);
+}
+
+template<typename T>
+bool exists(T* p) {
+  constexpr size_t w = size_class_of<T>;
+  return size_class<w>::exists(arena<w>, p);
 }
 
 // Read flags
