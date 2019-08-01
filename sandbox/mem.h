@@ -44,7 +44,7 @@ public:
   // Reserve space for header
   static constexpr size_t W = W_ + alignment;
 
-  // block <-> heap pointer --> header
+  // block <-> heap pointer <-> header
   using block = uint8_t[W];
 
   static void* of_block(block* p)
