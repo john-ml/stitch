@@ -1,4 +1,11 @@
 // Automatic memory management
+// The heap is a bunch of mmap'ed size classes.
+// Each size class has 3 lists: free, dying, alive.
+// - free is just a regular free list.
+// - dying's transitive closure contains all memory unreachable by the main
+//   program.
+// - alive's transitive closure contains all memory reachable by both the main
+//   program and `dying`.
 
 #ifndef MEM_INCLUDED_H
 #define MEM_INCLUDED_H
