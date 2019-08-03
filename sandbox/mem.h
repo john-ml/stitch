@@ -1,3 +1,29 @@
+// Accumulate:
+// - List of sources for tracing and the levels at which to trace them
+//   (basically lazy suspensions of the actual acts of marking)
+// - List of sinks eligible for deallocation and the levels at which to
+//   sweep them (basically lazy suspensions of the actual act of sweeping)
+// - Whenever bind to lval, add source at current level if it's greater than
+//   the existing source level
+// - Whenever intermediate value dead, add sink at current level if it's less
+//   than the existing sink level
+// - Whenever request new memory:
+//     - Look in free list
+//     - If empty, force some sinks
+//         - For sink at level l: 
+//              - Mark all sources at level l' < l
+//                (you have to somehow know their types/locations of pointers!)
+//              - Delete sources at level l' not< l
+//              - If sink is marked at level < l, delete from sink list and
+//                go to next sink (this one is still live)
+//              - Otherwise, return sink and resume lazy sweep (i.e. mark all of
+//                sink's children as sinks at level l)
+//                (again, somehow have to know the type/layout of the sink!)
+//     - If no free cell found in sinks, bump_pointer++
+// < on levels should form a partial order and not a total one. Possible
+// executions form a tree where each node is a level; l1 < l2 if l1 ~> l2
+// in the tree.
+
 // Automatic memory management
 // The heap is a bunch of mmap'ed size classes.
 // Each size class has 3 lists: free, dying, alive.
