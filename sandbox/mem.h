@@ -1,15 +1,20 @@
 // Accumulate:
-// - List of sources for tracing and the levels at which to trace them
-//   (basically lazy suspensions of the actual acts of marking)
+// - Free list
+// - Queue of sources for tracing and the levels at which to trace them
+//   (basically lazy suspensions of marking)
 // - List of sinks eligible for deallocation and the levels at which to
-//   sweep them (basically lazy suspensions of the actual act of sweeping)
-// - Whenever bind to lval, add source at current level if it's greater than
-//   the existing source level
-// - Whenever intermediate value dead, add sink at current level if it's less
-//   than the existing sink level
+//   sweep them (basically lazy suspensions of sweeping)
+// - Whenever bind to lval that might get aliased by future levels, enqueue
+//   source at current level or update existing level with min(new, old)
+// - Whenever intermediate value falling out of scope/dying that might alias
+//   past levels, add sink at current level or update existing with
+//   min(new, old)
+// - Whenever intermediate value falling out of scope/dying that doesn't alias,
+//   add to free list
 // - Whenever request new memory:
-//     - Look in free list
-//     - If empty, force some sinks
+//     - If free list non-empty, return head + add its children to their free
+//       lists
+//     - If sinks available, force some of them
 //         - For sink at level l: 
 //              - Mark all sources at level l' < l
 //                (you have to somehow know their types/locations of pointers!)
