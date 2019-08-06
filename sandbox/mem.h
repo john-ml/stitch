@@ -1,42 +1,50 @@
-// Accumulate:
-// - Free list
-// - Queue of sources for tracing and the levels at which to trace them
-//   (basically lazy suspensions of marking)
-// - List of sinks eligible for deallocation and the levels at which to
-//   sweep them (basically lazy suspensions of sweeping)
-// - Whenever bind to lval that might get aliased by future levels, enqueue
-//   source at current level or update existing level with min(new, old)
-// - Whenever intermediate value falling out of scope/dying that might alias
-//   past levels, add sink at current level or update existing with
-//   min(new, old)
-// - Whenever intermediate value falling out of scope/dying that doesn't alias,
-//   add to free list
-// - Whenever request new memory:
-//     - If free list non-empty, return head + add its children to their free
-//       lists
-//     - If sinks available, force some of them
-//         - For sink at level l: 
-//              - Mark all sources at level l' < l
-//                (you have to somehow know their types/locations of pointers!)
-//              - Delete sources at level l' not< l
-//              - If sink is marked at level < l, delete from sink list and
-//                go to next sink (this one is still live)
-//              - Otherwise, return sink and resume lazy sweep (i.e. mark all of
-//                sink's children as sinks at level l)
-//                (again, somehow have to know the type/layout of the sink!)
-//     - If no free cell found in sinks, bump_pointer++
-// < on levels should form a partial order and not a total one. Possible
-// executions form a tree where each node is a level; l1 < l2 if l1 ~> l2
-// in the tree.
-
-// Automatic memory management
-// The heap is a bunch of mmap'ed size classes.
-// Each size class has 3 lists: free, dying, alive.
-// - free is just a regular free list.
-// - dying's transitive closure contains all memory unreachable by the main
-//   program.
-// - alive's transitive closure contains all memory reachable by both the main
-//   program and `dying`.
+// Overhead per heap item in each typed arena:
+//   uint64_t[ceil(W/63)] bitmap encoding the locations of pointers
+//     High bit used to tell whether bitmap is last one or not
+//     Needed for uniform traversal of sources
+//   Maybe (nat, nat) representing a 'level'
+//   Source next_ptr | Sink next_ptr
+//
+// Global overhead: [nat] 'cursor' representing 'current position' in call tree
+//
+// Maintain
+//   Globally: deque of sources for tracing
+//   Per typed arena: stack of sinks for deallocation
+//
+// On
+//   Bind lvalue that won't alias downward-escaping values: no-op
+//   Bind lvalue that might alias downward-escaping values:
+//     Enqueue source and 'remove' from sinks (set Source tag)
+//   Value's lifetime ends:
+//     Push sink and 'remove' from sources (set Sink tag)
+//
+// Notes:
+//   Sources enqueued in ascending order by level
+//   Sinks pushed in descending order by level
+//
+// new:
+//   While sinks nonempty and exist sources of level <= sinks.peek().level:
+//     Dequeue and trace next source
+//     During tracing:
+//       If (node to trace).level in cursor and <= source level: stop
+//       If node to trace == sinks.peek(): pop sink
+//       If sinks.peek().level in cursor: pop sink
+//   If sinks nonempty:
+//     p = pop sink
+//     Push p's children to their respective sinks
+//     Return p
+//   Return bump_pointer++
+//
+// Notes:
+//   When traversing sources and sinks, skip over Source sinks and Sink sources
+//   `new` considers sinks and sources in ascending order by level
+//     Smallest sinks first => less sources to trace to prove unreachability
+//     Smallest sources first => no redundant tracing per `new`
+//   All Source sources will have levels (l, n) such that cursor[l] = n
+//   Source level (l1, n1) <= sink level (l2, n2) if l1 <= l2
+//     Approximation: perfect tracing need only consider sources whose cursors
+//     are prefixes of the sink cursor, but don't have whole cursors
+//   Sink level (l, n) in cursor if l < cursor.len && cursor[l] == n
 
 #ifndef MEM_INCLUDED_H
 #define MEM_INCLUDED_H
