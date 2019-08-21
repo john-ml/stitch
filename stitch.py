@@ -25,13 +25,14 @@ class Var:
     self.a = self
 
 # log = list of thunks that will undo destructive updates (aka trail)
-# f : prolog program = log -> generator of None
+# f : action = log -> generator of None
 def run(f):
   log = []
   g = f(log)
   next(g) # force at least one success
   return log, g
 
+# unify : term, term -> action
 def unify(l, r):
   def nop(_): pass
   class No(Exception): pass
@@ -79,25 +80,31 @@ def unify(l, r):
     except No: pass
   return res
 
+# revert all actions taken from log[n] onwards
 def undo(log, n=0):
   while len(log) > n:
     log.pop()()
 
+# conj, disj : action .. -> action
 def conj(*fs):
   def res(log):
-    gs = [f(log) for f in fs]
-    while True:
-      for g in gs:
-        next(g)
-      yield
+    def go(fs):
+      if len(fs) == 0:
+        yield
+      else:
+        f, *fs = fs
+        n = len(log)
+        for _ in f(log):
+          yield from go(fs)
+          undo(log, n=n)
+    return go(fs)
   return res
-
 def disj(*fs):
   def res(log):
     n = len(log)
     for f in fs:
-      try: yield from f(log)
-      except StopIteration: undo(log, n=n)
+      yield from f(log)
+      undo(log, n=n)
   return res
 
 def zonk(t, verbose=False):
@@ -115,7 +122,7 @@ def zonk(t, verbose=False):
 def pp_zonked(t):
   return t if type(t) is str else '[' + ' '.join(map(pp_zonked, t)) + ']'
 
-def test():
+def test_app():
   def app(go, t):
     return disj(
       (lambda xs: unify(t, [lit('nil'), lit('++'), xs, lit('='), xs]))(Var()),
@@ -124,7 +131,6 @@ def test():
          go([xs, lit('++'), ys, lit('='), zs])))
          (Var(), Var(), Var(), Var()),
     )
-
   go = lambda t: lambda log: app(go, t)(log)
   nil = lit('nil')
   cons = lambda h, t: [h, lit('::'), t]
@@ -165,6 +171,31 @@ def test():
   print(pp_zonked(zonk(xs)))
   undo(log)
   print(pp_zonked(zonk(xs)))
+  print()
+
+def test_conj_back():
+  def go(t):
+    def res(log):
+      return disj(
+        unify(t, [lit('q'), lit('a')]),
+        unify(t, [lit('q'), lit('b')]),
+        unify(t, [lit('r'), lit('c')]),
+        unify(t, [lit('r'), lit('d')]),
+        (lambda x, y: conj(
+          unify(t, [lit('p'), x, y]),
+          go([lit('q'), x]),
+          go([lit('r'), y])))
+          (Var(), Var()),
+      )(log)
+    return res
+  x, y = Var(), Var()
+  print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
+  log = []
+  for _ in go([lit('p'), x, y])(log):
+    print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
+  undo(log)
+  print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
 
 if __name__ == '__main__':
-  test()
+  test_app()
+  test_conj_back()
