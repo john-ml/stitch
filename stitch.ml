@@ -1,210 +1,118 @@
-open Misc
-open Syntax
+exception No
 
-let _ =
-  let open Ty in let open Notation in
-  let open Expr in let open Notation in
-  let old_margin = Format.pp_get_margin Format.std_formatter () in
-  Format.pp_set_margin Format.std_formatter 30;
-  let dump e = Format.printf "%a@." Expr.pp e in
-  dump (~$"f" *$ ["Some"*^[]*."field"]);
-  let nested =
-    ~$"y" += ~& (~$"x" *! ~!3) *:: ~*(~$$"i32") @@
-    ~!0
+(* lit = convert string to atom, nab(la) = fresh atom *)
+let (lit, nab) =
+  let memo = Hashtbl.create 100 in
+  let i = ref 0 in
+  let lit s =
+    match Hashtbl.find_opt memo s with
+    | Some n -> `Lit n
+    | None -> let n = !i in Hashtbl.add memo s n; i := n + 1; `Lit n
   in
-  dump (~$"f"*$["Some"*^[nested]*."field"]);
-  dump (ite None ~$"x" ~!0 ~!1);
-  dump (ite None ~$"x" ~!0 nested);
-  dump (ite None ~$"x" nested ~!1);
-  dump (ite None ~$"x" nested nested);
-  dump (ite None nested ~!0 ~!1);
-  dump (ite None nested ~!0 nested);
-  dump (ite None nested nested ~!1);
-  dump (ite None nested nested nested);
-  Format.pp_set_margin Format.std_formatter old_margin
+  let nab () = let n = !i in i := n + 1; `Lit n in
+  (lit, nab)
 
-let _ =
-  let open Uf in
-  let x, y, z, w = Meta.fresh (), Meta.fresh (), Meta.fresh (), Meta.fresh () in
-  Printf.printf "x = %d, y = %d, z = %d, w = %d\n" x y z w;
-  let dump uf =
-    Printf.printf "find(x) = %d, find(y) = %d, find(z) = %d, find(w) = %d\n" 
-      (find x uf) (find y uf) (find z uf) (find w uf)
+(* compound term *)
+let arr l = `Arr (Array.of_list l)
+
+(* fresh unification variable *)
+let gen () = let rec x = `Var (ref x) in x
+
+let nop _ = ()
+
+(* log = list of thunks that will undo destructive updates
+   set_l x stores x in l's parent pointer location
+     i.e. pointer graph goes (p -> l) x ==set_l x==> (p -> x) l
+     l isn't destroyed, but just isolated from the old reference graph
+*)
+let rec unify log l r set_l set_r =
+  let set log pa b =
+    let a = !pa in
+    log := (fun _ -> pa := a) :: !log;
+    pa := b
   in
-  let uf = empty in
-  dump uf;
-  let uf = union x y uf in
-  dump uf;
-  let uf = union z w uf in
-  dump uf;
-  let uf = union w y uf in
-  dump uf
+  match l, r, set_l, set_r with
+  | _ when l == r -> ()
+  | `Lit i, `Lit j, _, _ when i = j -> ()
+  | `Arr xs, `Arr ys, _, _ when Array.(length xs = length ys) ->
+      for i = 0 to Array.length xs - 1 do
+        unify log xs.(i) ys.(i) (fun x -> xs.(i) <- x) (fun y -> ys.(i) <- y)
+      done
+  (* instantiate variables *)
+  | (`Var pa as a), b, _, _ when a == !pa -> set log pa b
+  | b, (`Var pa as a), _, _ when a == !pa -> set log pa b
+  (* follow var -> var links (find representative) *)
+  | `Var ({contents = `Var ppa} as pa), b, _, set_b
+  | b, `Var ({contents = `Var ppa} as pa), set_b, _ ->
+      unify log !ppa b ((:=) pa) set_b
+  (* var ~ non-var with var -> term:
+     - store var in non-var's parent pointer location
+     - check term ~ non-var
+     this allows for unification of cyclic structures *)
+  | (`Var pa as va), b, _, set_b | b, (`Var pa as va), set_b, _ ->
+      log := (fun _ -> set_b b) :: !log;
+      set_b va;
+      unify log !pa b ((:=) pa) nop
+  | _ -> raise No
 
-let empty_ctx = 
-  let open Typing in
-  { Ctx
-  . locals = NameM.empty
-  ; globals = NameM.empty
-  ; aliases = NameM.empty
-  ; uf = Uf.empty
-  ; insts = MetaM.empty
-  ; rec_insts = MetaM.empty
-  ; apps = AppI.empty
-  ; trapped = MetaM.empty
-  ; poly_insts = MetaM.empty
-  ; constraints = NameM.empty
-  }
+let ( =:= ) l r log = unify log l r nop nop
 
-let dump_ctx ~succeeds k =
-  let open Typing in
-  let failed () = if succeeds then failwith "Shouldn't have failed" else () in
-  begin try
-    print_endline (Ctx.show (k empty_ctx));
-    if not succeeds then failwith "Shouldn't have succeeded" else ()
-  with
-  | Ctx.Unbound (_, x) ->
-      print_endline (Printf.sprintf
-        "Variable not in scope: %s" (Name.show x));
-      failed ()
-  | Ctx.Mismatch (c, want, have, mmsg) ->
-      print_endline (Printf.sprintf
-        "Want %s, have %s%s. Context: %s"
-        (Ty.show want) (Ty.show have)
-        (match mmsg with None -> "" | Some msg -> " ("^msg^")")
-        (Ctx.show c));
-      failed ()
-  | Ctx.RowDup (c, x, t) ->
-      print_endline (Printf.sprintf
-        "Field %s is duplicated in %s. Context: %s"
-        (Name.show x) (Ty.show t) (Ctx.show c));
-      failed ()
-  | Ctx.BadRecursion (c, x, t) ->
-      print_endline (Printf.sprintf
-        "Can't construct infinite type %s ~ %s. Context: %s"
-        (Meta.show x) (Ty.show t) (Ctx.show c));
-      failed ()
-  end;
-  print_endline ""
+let undo log = List.iter (fun f -> f ()) !log; log := []
 
-let _ =
-  let open Name in
-  let open Node in
-  let open Ty in
-  let open Typing in
-  let p, _q, r, _s = Meta.(fresh (), fresh (), fresh (), fresh ()) in
-  let x, y, z, w = Meta.(fresh (), fresh (), fresh (), fresh ()) in
-  let f t = at (Ptr (Meta p, t)) in
-  let g t = at (Lbl (Meta p, t)) in
-  let mx, my, mz, mw = at (Meta x), at (Meta y), at (Meta z), at (Meta w) in
-  (* μ x. *x ~ μ y. *y *)
-  dump_ctx ~succeeds:true (fun c -> c
-    |> unify mx (f mx)
-    |> unify my (f my)
-    |> unify mx my);
-  (* x /~ ..x *)
-  dump_ctx ~succeeds:false (unify mx (g mx));
-  (* μ x. *x ~ μ y. **y *)
-  dump_ctx ~succeeds:true (fun c -> c
-    |> unify mx (f mx)
-    |> unify my (f (f my))
-    |> unify mx my);
-  (* μ x. f^10(x) ~ μ y. f^11(y) *)
-  dump_ctx ~succeeds:true (fun c -> c
-    |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
-    |> unify my (f (f (f (f (f (f (f (f (f (f (f my)))))))))))
-    |> unify mx my);
-  (* ?x = f(?y), ?y = f(?x), ?z = f(?z) ==> ?x ~ ?z *)
-  dump_ctx ~succeeds:true (fun c -> c
-    |> unify mx (f my)
-    |> unify my (f mz)
-    |> unify mz (f mz)
-    |> unify mx mz);
-  (* ?x = f(?y), ?y = f(?y) ==> ?x ~ ?y *)
-  dump_ctx ~succeeds:true (fun c -> c
-    |> unify mx (f my)
-    |> unify my (f my)
-    |> unify mx my);
-  (* ?x = f(f(?x)) ==> ?x ~ f(?x) *)
-  dump_ctx ~succeeds:true (fun c -> c
-    |> unify mx (f (f mx))
-    |> unify mx (f mx));
-  (* x /~ y *)
-  dump_ctx ~succeeds:false (fun c -> c
-    |> unify (at (Var (id "x"))) (at (Var (id "y"))));
-  (* ?x ~ ?y, ?z ~ ?w, ?x ~ ?w *)
-  dump_ctx ~succeeds:true (fun c -> c
-    |> unify mx my
-    |> unify mz mw
-    |> unify mx mw);
-  (* μ x. f^10(x) /~ μ y. f^11(z) *)
-  dump_ctx ~succeeds:false (fun c -> c
-    |> unify mx (f (f (f (f (f (f (f (f (f (f mx))))))))))
-    |> unify my (f (f (f (f (f (f (f (f (f (f (f (at (Var (id "z"))))))))))))))
-    |> unify mx my);
-  let int = at (Lit (id "int")) in
-  let idx, idy, idz = id "x", id "y", id "z" in
-  (* {x int} /~ {y int} *)
-  dump_ctx ~succeeds:false (unify
-    (at (Rec (Cons (NameM.singleton idx int, Nil))))
-    (at (Rec (Cons (NameM.singleton idy int, Nil)))));
-  (* {x int} ~ {x int} *)
-  dump_ctx ~succeeds:true (unify 
-    (at (Rec (Cons (NameM.singleton idx int, Nil))))
-    (at (Rec (Cons (NameM.singleton idx int, Nil)))));
-  (* {x int; ?z} ~ {x int; ?w} *)
-  dump_ctx ~succeeds:true (unify 
-    (at (Rec (Cons (NameM.singleton idx int, Open z))))
-    (at (Rec (Cons (NameM.singleton idx int, Open w)))));
-  (* {x int; ?z} ~ {y int; ?w} *)
-  dump_ctx ~succeeds:true (unify 
-    (at (Rec (Cons (NameM.singleton idx int, Open z))))
-    (at (Rec (Cons (NameM.singleton idy int, Open w)))));
-  (* {x int; ?r} ~ {y int; ?w} ==> {z int; ?r} ~ {y int, z int} *)
-  dump_ctx ~succeeds:true (fun c -> c
-    |> unify 
-         (at (Rec (Cons (NameM.singleton idx int, Open r))))
-         (at (Rec (Cons (NameM.singleton idy int, Open w))))
-    |> unify
-         (at (Rec (Cons (NameM.singleton idz int, Open r))))
-         (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Nil)))));
-  (* {x int; ?r} ~ {y int; ?w} ==> {z int; ?r} /~ {y int, z int; ?w} *)
-  dump_ctx ~succeeds:false (fun c -> c
-    |> unify 
-         (at (Rec (Cons (NameM.singleton idx int, Open r))))
-         (at (Rec (Cons (NameM.singleton idy int, Open w))))
-    |> unify
-         (at (Rec (Cons (NameM.singleton idz int, Open r))))
-         (at (Rec (Cons (NameM.of_list [idy, int; idz, int], Open w)))));
-  (* {; ?r} ~ {x int} ==> {x int; ?r} ~ ?y *)
-  dump_ctx ~succeeds:false (fun c -> c
-    |> unify 
-         (at (Rec (Cons (NameM.empty, Open r))))
-         (at (Rec (Cons (NameM.singleton idx int, Nil))))
-    |> unify
-         (at (Rec (Cons (NameM.singleton idx int, Open r))))
-         (at (Meta y)))
+let all fs log = List.iter (fun f -> f log) fs
 
-let _ =
-  let open Typing in
-  let open Ty in let open Notation in
-  let open Expr in let open Notation in
-  let dump_ctx_infer ~succeeds e =
-    dump_ctx ~succeeds (fun c ->
-      let c = {c with globals = Expr.env; aliases = Ty.env} in
-      let c, t = infer_expr e c in
-      print_endline (Ty.show t);
-      c)
+let any fs _ =
+  let log = ref [] in
+  let rec go = function
+    | [] -> raise No
+    | [f] -> f log
+    | f :: fs -> try f log with No -> undo log; go fs
   in
-  dump_ctx_infer ~succeeds:true
-    ("x" *: !?() -= ~!3 @@
-     "y" *: !?() -= ~%0.1 @@
-     ~$"x");
-  dump_ctx_infer ~succeeds:false ~$"x";
-  dump_ctx_infer ~succeeds:false (~%0.1 *:: ~$$"i64");
-  dump_ctx_infer ~succeeds:false (~!1 *:: ~$$"f64");
-  dump_ctx_infer ~succeeds:true (~!1 *:: ~$$"i64");
-  dump_ctx_infer ~succeeds:true ("__add__"*@@[~!1; ~!2]);
-  dump_ctx_infer ~succeeds:false ("__add__"*@@[~!1; ~%2.0]);
-  dump_ctx_infer ~succeeds:false ("__add__"*@@[~!1; ~!2; ~!3]);
-  dump_ctx_infer ~succeeds:true (ite None ~!0 ~!1 ("__add__"*@@[~!2; ~!3]));
-  dump_ctx_infer ~succeeds:false (ite None ~!0 ~!1 ("__add__"*@@[~%2.0; ~%3.0]))
+  go fs
+
+let exists f log = let x = gen () in f x log; x
+let exists2 f log = let x, y = gen (), gen () in f x y log; x, y
+let exists3 f log = let x, y, z = gen (), gen (), gen () in f x y z log; x, y, z
+let run f = let log = ref [] in (log, f log)
+
+let res () =
+  let app go t =
+    any
+      [ (let xs = gen () in t =:= arr [lit "nil"; lit "++"; xs; lit "="; xs])
+      ; (let x, xs, ys, zs = gen (), gen (), gen (), gen () in
+        all
+          [ t =:= arr
+              [ arr [x; lit "::"; xs]; lit "++"; ys
+              ; lit "="; arr [x; lit "::"; zs]
+              ]
+          ; go (arr [xs; lit "++"; ys; lit "="; zs])
+          ])
+      ]
+  in
+  let rec go t log = app go t log in
+  let nil = lit "nil" in
+  let cons h t = arr [h; lit "::"; t] in
+  let pp = lit "++" in
+  let eq = lit "=" in
+  ( run @@ exists (fun xs -> go @@ arr
+      [ cons (`Lit 98) (cons (`Lit 99) nil)
+      ; pp; cons (`Lit 100) (cons (`Lit 101) nil)
+      ; eq; cons (`Lit 98) xs
+      ])
+  , run @@ exists2 (fun x y -> all
+      [ x =:= cons (`Lit 100) x
+      ; y =:= cons (`Lit 100) (cons (`Lit 100) y)
+      ; x =:= y
+      ])
+  , run @@ exists3 (fun x y z -> all
+      [ x =:= cons (`Lit 100) x
+      ; y =:= cons (`Lit 100) (cons z y)
+      ; x =:= y
+      ])
+  , run @@ exists3 (fun x y z -> all
+      [ x =:= cons (`Lit 100) x
+      ; y =:= cons (`Lit 100) z
+      ; z =:= cons (`Lit 100) y
+      ; x =:= y
+      ])
+  )
