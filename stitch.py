@@ -76,7 +76,7 @@ def unify(l, r):
     elif type(r) is Var: cyc(r, l, set_l)
     else: raise No
   def res(log):
-    try: unify_(log, l, r, nop, nop); yield
+    try: yield unify_(log, l, r, nop, nop)
     except No: pass
   return res
 
@@ -125,15 +125,13 @@ def pp_zonked(t):
 def test_app():
   # nil ++ XS = XS
   # (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS
-  def app(go, t):
-    return disj(
-      (lambda xs: unify(t, [lit('nil'), lit('++'), xs, lit('='), xs]))(Var()),
-      (lambda x, xs, ys, zs: conj(
-         unify(t, [[x, lit('::'), xs], lit('++'), ys, lit('='), [x, lit('::'), zs]]),
-         go([xs, lit('++'), ys, lit('='), zs])))
-         (Var(), Var(), Var(), Var()),
-    )
-  go = lambda t: lambda log: app(go, t)(log)
+  go = lambda t: lambda log: disj(
+    (lambda xs: unify(t, [lit('nil'), lit('++'), xs, lit('='), xs]))(Var()),
+    (lambda x, xs, ys, zs: conj(
+      unify(t, [[x, lit('::'), xs], lit('++'), ys, lit('='), [x, lit('::'), zs]]),
+      go([xs, lit('++'), ys, lit('='), zs])))
+      (Var(), Var(), Var(), Var()),
+  )(log)
   nil = lit('nil')
   cons = lambda h, t: [h, lit('::'), t]
   # ('100 :: ('101 :: nil)) ~ XS
@@ -187,31 +185,27 @@ def test_app():
 def test_conj_back():
   # q a. q b. r c. r d.
   # p X Y <== q X, r Y.
-  def go(t):
-    def res(log):
-      return disj(
-        unify(t, [lit('q'), lit('a')]),
-        unify(t, [lit('q'), lit('b')]),
-        unify(t, [lit('r'), lit('c')]),
-        unify(t, [lit('r'), lit('d')]),
-        (lambda x, y: conj(
-          unify(t, [lit('p'), x, y]),
-          go([lit('q'), x]),
-          go([lit('r'), y])))
-          (Var(), Var()),
-      )(log)
-    return res
+  go = lambda t: lambda log: disj(
+    unify(t, [lit('q'), lit('a')]),
+    unify(t, [lit('q'), lit('b')]),
+    unify(t, [lit('r'), lit('c')]),
+    unify(t, [lit('r'), lit('d')]),
+    (lambda x, y: conj(
+      unify(t, [lit('p'), x, y]),
+      go([lit('q'), x]),
+      go([lit('r'), y])))
+      (Var(), Var()),
+  )(log)
   # p X Y ==>
   #   X ~ a, Y = c;
   #   X ~ a, Y = d;
   #   X ~ b, Y = c;
-  #   X ~ b, Y = d;
+  #   X ~ b, Y = d
   x, y = Var(), Var()
   print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
   log = []
   for _ in go([lit('p'), x, y])(log):
     print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
-  undo(log)
   print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
 
 if __name__ == '__main__':
