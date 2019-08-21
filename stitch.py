@@ -123,6 +123,8 @@ def pp_zonked(t):
   return t if type(t) is str else '[' + ' '.join(map(pp_zonked, t)) + ']'
 
 def test_app():
+  # nil ++ XS = XS
+  # (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS
   def app(go, t):
     return disj(
       (lambda xs: unify(t, [lit('nil'), lit('++'), xs, lit('='), xs]))(Var()),
@@ -134,14 +136,19 @@ def test_app():
   go = lambda t: lambda log: app(go, t)(log)
   nil = lit('nil')
   cons = lambda h, t: [h, lit('::'), t]
-
+  # ('100 :: ('101 :: nil)) ~ XS
   xs = Var()
   log, _ = run(unify(cons(100, cons(101, nil)), xs))
   print(pp_zonked(zonk(xs)))
   undo(log)
   print(pp_zonked(zonk(xs)))
   print()
-
+  # XS ~ ('100 :: XS)
+  # YS ~ ('100 :: (Z :: YS))
+  # ZS ~ YS
+  # ----------------------
+  # Z ~ 100
+  # YS ~ ('100 :: XS)
   xs, ys, z = Var(), Var(), Var()
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(z)))
   log, _ = run(conj(
@@ -153,7 +160,9 @@ def test_app():
   undo(log)
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(z)))
   print()
-
+  # (98 :: (99 :: nil)) ++ (100 :: (101 :: nil)) = (98 :: XS)
+  # ---------------------------------------------------------
+  # XS ~ (99 :: (100 :: (101 :: nil)))
   xs = Var()
   print(pp_zonked(zonk(xs)))
   log, _ = run(go([
@@ -163,7 +172,9 @@ def test_app():
   undo(log)
   print(pp_zonked(zonk(xs)))
   print()
-
+  # (100 :: nil) ++ XS = XS
+  # -----------------------
+  # XS ~ (100 :: XS)
   xs = Var()
   print(pp_zonked(zonk(xs)))
   log, _ = run(go([
@@ -174,6 +185,8 @@ def test_app():
   print()
 
 def test_conj_back():
+  # q a. q b. r c. r d.
+  # p X Y <== q X, r Y.
   def go(t):
     def res(log):
       return disj(
@@ -188,6 +201,11 @@ def test_conj_back():
           (Var(), Var()),
       )(log)
     return res
+  # p X Y ==>
+  #   X ~ a, Y = c;
+  #   X ~ a, Y = d;
+  #   X ~ b, Y = c;
+  #   X ~ b, Y = d;
   x, y = Var(), Var()
   print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
   log = []
