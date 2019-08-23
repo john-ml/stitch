@@ -142,8 +142,15 @@ def zonk(t, verbose=False):
       done |= {t}
       return (hex(id(t)), go(t.a)) if verbose else go(t.a)
     elif type(t) is list: return [go(x) for x in t]
+    elif type(t) is SMT: return str(t.a)
     else: raise ValueError(f"Can't zonk {t}")
   return go(t)
+
+def trace(f):
+  def res(t):
+    print(zonk(t))
+    return f(t)
+  return res
 
 def pp_zonked(t):
   return t if type(t) is str else '[' + ' '.join(map(pp_zonked, t)) + ']'
@@ -264,6 +271,7 @@ def test_factorial():
       (solver.model()[x.a] if solver.check() == z3.sat else None),
     )
   print(solver)
+  print()
   # fac X 720
   # ---------
   #   X = 7
@@ -276,8 +284,37 @@ def test_factorial():
       (solver.model()[x.a] if solver.check() == z3.sat else None),
     )
   print(solver)
+  print()
+
+def test_pythags():
+  # pythag A B C N <==
+  #   {0 < A}, {A <= B}, {B <= C}, {C <= N}
+  #   {A^2 + B^2 = C^2}.
+  go = lambda t: lambda log, solver: (lambda a, b, c, n: conj(
+    unify(t, [lit('pythag'), a, b, c, n]),
+    add(0 < a.a), add(a.a <= b.a), add(b.a <= c.a), add(c.a <= n.a),
+    add(a.a**2 + b.a**2 == c.a**2)
+  )(log, solver))(
+    SMT(z3.Int(nab())), SMT(z3.Int(nab())),
+    SMT(z3.Int(nab())), SMT(z3.Int(nab()))
+  )
+  a = SMT(z3.Int('a'))
+  b = SMT(z3.Int('b'))
+  c = SMT(z3.Int('c'))
+  log = []
+  solver = z3.Solver()
+  for _ in go([lit('pythag'), a, b, c, SMT(30)])(log, solver):
+    solver.push()
+    while solver.check() == z3.sat:
+      m = solver.model()
+      ma, mb, mc = m[a.a], m[b.a], m[c.a]
+      print(f'a = {ma}, b = {mb}, c = {mc}')
+      solver.add(z3.Not(z3.And(a.a == ma, b.a == mb, c.a == mc)))
+    solver.pop()
+  print()
 
 if __name__ == '__main__':
   test_app()
   test_conj_back()
   test_factorial()
+  test_pythags()
