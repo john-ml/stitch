@@ -1,3 +1,5 @@
+import z3
+
 def mk():
   memo = {}
   strs = []
@@ -24,13 +26,20 @@ class Var:
   def __init__(self):
     self.a = self
 
-# log = list of thunks that will undo destructive updates (aka trail)
-# f : action = log -> generator of None
+# constraint
+class SMT:
+  def __init__(self, a):
+    self.a = a
+
+# log = mutable list of thunks that will undo destructive updates (aka trail)
+# solver = SMT solver
+# f : action = log, solver -> generator of None
 def run(f):
   log = []
-  g = f(log)
+  solver = z3.Solver()
+  g = f(log, solver)
   next(g) # force at least one success
-  return log, g
+  return log, solver, g
 
 # unify : term, term -> action
 def unify(l, r):
@@ -39,7 +48,7 @@ def unify(l, r):
   # set_l x stores x in l's parent location
   #   i.e. pointer graph goes (p -> l) x ==set_l x==> (p -> x) l
   #   l isn't destroyed, but just isolated from the old reference graph
-  def unify_(log, l, r, set_l, set_r):
+  def unify_(log, solver, l, r, set_l, set_r):
     # helpers
     def set_var(v):
       def res(x):
@@ -55,56 +64,72 @@ def unify(l, r):
     def cyc(v, e, set_e):
       log.append(lambda: set_e(e))
       set_e(v)
-      unify_(log, v.a, e, set_var(v), nop)
-    # simple cases
-    if l is r: return
-    elif type(l) is type(r) is int and l == r: return
-    elif type(l) is type(r) is list and len(l) == len(r):
-      for i, (x, y) in enumerate(zip(l, r)):
-        unify_(log, x, y, set_arr(l, i), set_arr(r, i))
-    # instantiate variables
-    elif type(l) is Var and l is l.a: inst(l, r)
-    elif type(r) is Var and r is r.a: inst(r, l)
-    # follow var -> var links (find representative)
-    elif type(l) is Var is type(l.a): unify_(log, l.a, r, set_var(l), set_r)
-    elif type(r) is Var is type(r.a): unify_(log, r.a, l, set_var(r), set_l)
-    # var ~ non-var with var -> term:
-    # - store var in non-var's parent pointer location
-    # - check term ~ non-var
-    # this allows for unification of cyclic structures
-    elif type(l) is Var: cyc(l, r, set_r)
-    elif type(r) is Var: cyc(r, l, set_l)
-    else: raise No
-  def res(log):
-    try: yield unify_(log, l, r, nop, nop)
+      go(v.a, e, set_var(v), nop)
+    def go(l, r, set_l, set_r):
+      # simple cases
+      if l is r: return
+      elif type(l) is type(r) is int and l == r: return
+      elif type(l) is type(r) is list and len(l) == len(r):
+        for i, (x, y) in enumerate(zip(l, r)):
+          go(x, y, set_arr(l, i), set_arr(r, i))
+      # instantiate variables
+      elif type(l) is Var and l is l.a: inst(l, r)
+      elif type(r) is Var and r is r.a: inst(r, l)
+      # follow var -> var links (find representative)
+      elif type(l) is Var is type(l.a): go(l.a, r, set_var(l), set_r)
+      elif type(r) is Var is type(r.a): go(r.a, l, set_var(r), set_l)
+      # var ~ non-var with var -> term:
+      # - store var in non-var's parent pointer location
+      # - check term ~ non-var
+      # this allows for unification of cyclic structures
+      elif type(l) is Var: cyc(l, r, set_r)
+      elif type(r) is Var: cyc(r, l, set_l)
+      elif type(l) is type(r) is SMT:
+        solver.add(l.a == r.a)
+        if solver.check() == z3.unsat: raise No
+      else: raise No
+    return go(l, r, set_l, set_r)
+  def res(log, solver):
+    try: yield unify_(log, solver, l, r, nop, nop)
     except No: pass
   return res
 
 # revert all actions taken from log[n] onwards
-def undo(log, n=0):
+def undo(log, n):
   while len(log) > n:
     log.pop()()
 
+# add : z3 formula -> action
+def add(f):
+  def res(log, solver):
+    solver.add(f)
+    if solver.check() == z3.sat: yield
+  return res
+
 # conj, disj : action .. -> action
 def conj(*fs):
-  def res(log):
+  def res(log, solver):
     def go(fs):
       if len(fs) == 0:
         yield
       else:
         f, *fs = fs
         n = len(log)
-        for _ in f(log):
+        for _ in f(log, solver):
+          solver.push()
           yield from go(fs)
-          undo(log, n=n)
+          undo(log, n)
+          solver.pop()
     return go(fs)
   return res
 def disj(*fs):
-  def res(log):
+  def res(log, solver):
     n = len(log)
     for f in fs:
-      yield from f(log)
-      undo(log, n=n)
+      solver.push()
+      yield from f(log, solver)
+      undo(log, n)
+      solver.pop()
   return res
 
 def zonk(t, verbose=False):
@@ -117,6 +142,7 @@ def zonk(t, verbose=False):
       done |= {t}
       return (hex(id(t)), go(t.a)) if verbose else go(t.a)
     elif type(t) is list: return [go(x) for x in t]
+    else: raise ValueError(f"Can't zonk {t}")
   return go(t)
 
 def pp_zonked(t):
@@ -125,20 +151,20 @@ def pp_zonked(t):
 def test_app():
   # nil ++ XS = XS
   # (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS
-  go = lambda t: lambda log: disj(
+  go = lambda t: lambda log, solver: disj(
     (lambda xs: unify(t, [lit('nil'), lit('++'), xs, lit('='), xs]))(Var()),
     (lambda x, xs, ys, zs: conj(
       unify(t, [[x, lit('::'), xs], lit('++'), ys, lit('='), [x, lit('::'), zs]]),
       go([xs, lit('++'), ys, lit('='), zs])))
       (Var(), Var(), Var(), Var()),
-  )(log)
+  )(log, solver)
   nil = lit('nil')
   cons = lambda h, t: [h, lit('::'), t]
   # ('100 :: ('101 :: nil)) ~ XS
   xs = Var()
-  log, _ = run(unify(cons(100, cons(101, nil)), xs))
+  log, _, _ = run(unify(cons(100, cons(101, nil)), xs))
   print(pp_zonked(zonk(xs)))
-  undo(log)
+  undo(log, 0)
   print(pp_zonked(zonk(xs)))
   print()
   # XS ~ ('100 :: XS)
@@ -149,13 +175,13 @@ def test_app():
   # YS ~ ('100 :: XS)
   xs, ys, z = Var(), Var(), Var()
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(z)))
-  log, _ = run(conj(
+  log, _, _ = run(conj(
     unify(xs, cons(100, xs)),
     unify(ys, cons(100, cons(z, ys))),
     unify(xs, ys),
   ))
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(z)))
-  undo(log)
+  undo(log, 0)
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(z)))
   print()
   # (98 :: (99 :: nil)) ++ (100 :: (101 :: nil)) = (98 :: XS)
@@ -163,11 +189,12 @@ def test_app():
   # XS ~ (99 :: (100 :: (101 :: nil)))
   xs = Var()
   print(pp_zonked(zonk(xs)))
-  log, _ = run(go([
+  log, _, _ = run(go([
     cons(98, cons(99, nil)), lit('++'), cons(100, cons(101, nil)),
-    lit('='), cons(98, xs)]))
+    lit('='), cons(98, xs)
+  ]))
   print(pp_zonked(zonk(xs)))
-  undo(log)
+  undo(log, 0)
   print(pp_zonked(zonk(xs)))
   print()
   # (100 :: nil) ++ XS = XS
@@ -175,17 +202,17 @@ def test_app():
   # XS ~ (100 :: XS)
   xs = Var()
   print(pp_zonked(zonk(xs)))
-  log, _ = run(go([
+  log, _, _ = run(go([
     cons(100, nil), lit('++'), xs, lit('='), xs]))
   print(pp_zonked(zonk(xs)))
-  undo(log)
+  undo(log, 0)
   print(pp_zonked(zonk(xs)))
   print()
 
 def test_conj_back():
   # q a. q b. r c. r d.
   # p X Y <== q X, r Y.
-  go = lambda t: lambda log: disj(
+  go = lambda t: lambda log, solver: disj(
     unify(t, [lit('q'), lit('a')]),
     unify(t, [lit('q'), lit('b')]),
     unify(t, [lit('r'), lit('c')]),
@@ -193,9 +220,9 @@ def test_conj_back():
     (lambda x, y: conj(
       unify(t, [lit('p'), x, y]),
       go([lit('q'), x]),
-      go([lit('r'), y])))
-      (Var(), Var()),
-  )(log)
+      go([lit('r'), y])
+    ))(Var(), Var()),
+  )(log, solver)
   # p X Y ==>
   #   X ~ a, Y = c;
   #   X ~ a, Y = d;
@@ -204,10 +231,53 @@ def test_conj_back():
   x, y = Var(), Var()
   print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
   log = []
-  for _ in go([lit('p'), x, y])(log):
+  for _ in go([lit('p'), x, y])(log, z3.Solver()):
     print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
   print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
+  print()
+
+def test_factorial():
+  # fac 0 = 1.
+  # fac N = K <== {N > 0}, {M = N - 1}, fac M = P, {N * P = K}
+  go = lambda t: lambda log, solver: disj(
+    unify(t, [lit('fac'), SMT(0), lit('='), SMT(1)]),
+    (lambda n, m, p, k: conj(
+      unify(t, [lit('fac'), n, lit('='), k]),
+      add(n.a > 0),
+      add(m.a == n.a - 1),
+      add(n.a * p.a == k.a),
+      go([lit('fac'), m, lit('='), p]),
+    ))(
+      SMT(z3.Int(nab())), SMT(z3.Int(nab())),
+      SMT(z3.Int(nab())), SMT(z3.Int(nab())),
+    )
+  )(log, solver)
+  # fac 100! X
+  # ----------
+  # {X = 100!}
+  x = SMT(z3.Int('x'))
+  log = []
+  solver = z3.Solver()
+  for _ in go([lit('fac'), SMT(100), lit('='), x])(log, solver):
+    print(
+      solver, solver.check(), 'x =', 
+      (solver.model()[x.a] if solver.check() == z3.sat else None),
+    )
+  print(solver)
+  # fac X 720
+  # ---------
+  #   X = 7
+  x = SMT(z3.Int('x'))
+  log = []
+  solver = z3.Solver()
+  for _ in go([lit('fac'), x, lit('='), SMT(720*7)])(log, solver):
+    print(
+      solver, solver.check(), 'x =', 
+      (solver.model()[x.a] if solver.check() == z3.sat else None),
+    )
+  print(solver)
 
 if __name__ == '__main__':
   test_app()
   test_conj_back()
+  test_factorial()
