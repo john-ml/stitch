@@ -6,7 +6,7 @@ A prolog with:
 - SMT solver for complicated constraints
 
 Currently it
-[works](https://github.com/johnli0135/stitch/blob/master/stitch.py#L164-L329),
+[works](https://github.com/johnli0135/stitch/blob/master/stitch.py#L361-L364),
 but you have to write in abstract syntax.
 
 ## Planned syntax
@@ -36,19 +36,21 @@ all (X :: XS) <== X, all XS.
 - `clause ::= term` instead of `clause ::= atom | atom(term, ..)`
 - `<==` instead of `:-`
 
-## Cyclic structures
+## Cycles
 
 ```hs
 -- Some sugar for binding temporaries
 let X = X.
 
+-- Unify two infinite lists: XS = [100, 100, ..], YS = [100, Z, 100, Z, ..]
 let XS = (100 :: XS),
 let YS = (100 :: (Z :: YS)),
 let XS = YS?
 -- Z = 100
 
-let XS = (100 :: XS),
-let YS = (100 :: (100 :: ZS),
+-- Unify two infinite lists defined in slightly different ways
+let XS = (100 :: (100 :: XS)),
+let YS = (100 :: (100 :: (100 :: ZS))),
 let ZS = (100 :: YS),
 let ZS = YS?
 -- yes

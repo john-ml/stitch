@@ -207,15 +207,15 @@ def test_app():
   undo(log, 0)
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(z)))
   print()
-  # XS ~ ('100 :: XS)
-  # YS ~ ('100 :: ('100 :: ZS))
+  # XS ~ ('100 :: ('100 :: XS))
+  # YS ~ ('100 :: ('100 :: ('100 :: ZS)))
   # ZS ~ ('100 :: YS)
   # XS ~ YS
   xs, ys, zs = Var(), Var(), Var()
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(zs)))
   log, _, _ = run(conj(
-    unify(xs, cons(100, xs)),
-    unify(ys, cons(100, cons(100, zs))),
+    unify(xs, cons(100, cons(100, xs))),
+    unify(ys, cons(100, cons(100, cons(100, zs)))),
     unify(zs, cons(100, ys)),
     unify(xs, ys),
   ))
@@ -223,6 +223,7 @@ def test_app():
   undo(log, 0)
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(zs)))
   print()
+  exit()
   # (98 :: (99 :: nil)) ++ (100 :: (101 :: nil)) = (98 :: XS)
   # ---------------------------------------------------------
   # XS ~ (99 :: (100 :: (101 :: nil)))
