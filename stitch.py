@@ -223,7 +223,6 @@ def test_app():
   undo(log, 0)
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(zs)))
   print()
-  exit()
   # (98 :: (99 :: nil)) ++ (100 :: (101 :: nil)) = (98 :: XS)
   # ---------------------------------------------------------
   # XS ~ (99 :: (100 :: (101 :: nil)))

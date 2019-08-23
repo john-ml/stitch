@@ -6,7 +6,7 @@ A prolog with:
 - SMT solver for complicated constraints
 
 Currently it
-[works](https://github.com/johnli0135/stitch/blob/master/stitch.py#L361-L364),
+[works](https://github.com/johnli0135/stitch/blob/master/stitch.py),
 but you have to write in abstract syntax.
 
 ## Planned syntax
