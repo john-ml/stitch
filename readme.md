@@ -72,7 +72,7 @@ all (X :: XS) <== X, all XS.
 
 -- Find N in [1..9] such that cbrt 27 = 2N - 5
 all ({0 < N} :: ({N < 10} :: (cbrt 27 = {2*N - 5} :: nil)))?
--- N = 1; N = 4
+-- N = 4
 ```
 
 - `{}` to write SMT expressions/formulas
