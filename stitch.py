@@ -161,19 +161,28 @@ def zonk(t, verbose=False):
 def pp_zonked(t):
   return t if type(t) is str else '[' + ' '.join(map(pp_zonked, t)) + ']'
 
+def arr(*ts):
+  res, *ts = ts
+  while ts != []:
+    h, *ts = ts
+    res = [res, h]
+  return res
+
 # appending (potentially infinite) lists
 def test_app():
   # nil ++ XS = XS
   # (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS
   go = lambda t: lambda log, solver: disj(
-    (lambda xs: unify(t, [lit('nil'), lit('++'), xs, lit('='), xs]))(Var()),
+    (lambda xs: unify(t, arr(lit('nil'), lit('++'), xs, lit('='), xs)))(Var()),
     (lambda x, xs, ys, zs: conj(
-      unify(t, [[x, lit('::'), xs], lit('++'), ys, lit('='), [x, lit('::'), zs]]),
-      go([xs, lit('++'), ys, lit('='), zs])))
+      unify(t, arr(
+        arr(x, lit('::'), xs), lit('++'), ys, lit('='), arr(x, lit('::'), zs)
+      )),
+      go(arr(xs, lit('++'), ys, lit('='), zs))))
       (Var(), Var(), Var(), Var()),
   )(log, solver)
   nil = lit('nil')
-  cons = lambda h, t: [h, lit('::'), t]
+  cons = lambda h, t: arr(h, lit('::'), t)
   # ('100 :: ('101 :: nil)) ~ XS
   xs = Var()
   log, _, _ = run(unify(cons(100, cons(101, nil)), xs))
@@ -203,10 +212,10 @@ def test_app():
   # XS ~ (99 :: (100 :: (101 :: nil)))
   xs = Var()
   print(pp_zonked(zonk(xs)))
-  log, _, _ = run(go([
+  log, _, _ = run(go(arr(
     cons(98, cons(99, nil)), lit('++'), cons(100, cons(101, nil)),
     lit('='), cons(98, xs)
-  ]))
+  )))
   print(pp_zonked(zonk(xs)))
   undo(log, 0)
   print(pp_zonked(zonk(xs)))
@@ -216,8 +225,9 @@ def test_app():
   # XS ~ (100 :: XS)
   xs = Var()
   print(pp_zonked(zonk(xs)))
-  log, _, _ = run(go([
-    cons(100, nil), lit('++'), xs, lit('='), xs]))
+  log, _, _ = run(go(arr(
+    cons(100, nil), lit('++'), xs, lit('='), xs
+  )))
   print(pp_zonked(zonk(xs)))
   undo(log, 0)
   print(pp_zonked(zonk(xs)))
@@ -228,14 +238,14 @@ def test_conj_back():
   # q a. q b. r c. r d.
   # p X Y <== q X, r Y.
   go = lambda t: lambda log, solver: disj(
-    unify(t, [lit('q'), lit('a')]),
-    unify(t, [lit('q'), lit('b')]),
-    unify(t, [lit('r'), lit('c')]),
-    unify(t, [lit('r'), lit('d')]),
+    unify(t, arr(lit('q'), lit('a'))),
+    unify(t, arr(lit('q'), lit('b'))),
+    unify(t, arr(lit('r'), lit('c'))),
+    unify(t, arr(lit('r'), lit('d'))),
     (lambda x, y: conj(
-      unify(t, [lit('p'), x, y]),
-      go([lit('q'), x]),
-      go([lit('r'), y])
+      unify(t, arr(lit('p'), x, y)),
+      go(arr(lit('q'), x)),
+      go(arr(lit('r'), y))
     ))(Var(), Var()),
   )(log, solver)
   # p X Y ==>
@@ -246,7 +256,7 @@ def test_conj_back():
   x, y = Var(), Var()
   print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
   log = []
-  for _ in go([lit('p'), x, y])(log, z3.Solver()):
+  for _ in go(arr(lit('p'), x, y))(log, z3.Solver()):
     print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
   print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
   print()
@@ -254,19 +264,15 @@ def test_conj_back():
 # constraint solving
 def test_factorial():
   # fac 0 = 1.
-  # fac N = K <== {N > 0}, {M = N - 1}, fac M = P, {N * P = K}
+  # fac {N + 1} = P <== {N >= 0}, {(N + 1) * M = P}, fac N = M.
   go = lambda t: lambda log, solver: disj(
-    unify(t, [lit('fac'), SMT(0), lit('='), SMT(1)]),
-    (lambda n, m, p, k: conj(
-      unify(t, [lit('fac'), n, lit('='), k]),
-      add(n.a > 0),
-      add(m.a == n.a - 1),
-      add(n.a * p.a == k.a),
-      go([lit('fac'), m, lit('='), p]),
-    ))(
-      SMT(z3.Int(nab())), SMT(z3.Int(nab())),
-      SMT(z3.Int(nab())), SMT(z3.Int(nab())),
-    )
+    unify(t, arr(lit('fac'), SMT(0), lit('='), SMT(1))),
+    (lambda n, m, p: conj(
+      unify(t, arr(lit('fac'), SMT(n.a + 1), lit('='), p)),
+      add(n.a >= 0),
+      add((n.a + 1) * m.a == p.a),
+      go(arr(lit('fac'), n, lit('='), m)),
+    ))(SMT(z3.Int(nab())), SMT(z3.Int(nab())), SMT(z3.Int(nab())))
   )(log, solver)
   # fac 100! X
   # ----------
@@ -274,7 +280,7 @@ def test_factorial():
   x = SMT(z3.Int('x'))
   log = []
   solver = z3.Solver()
-  for _ in go([lit('fac'), SMT(100), lit('='), x])(log, solver):
+  for _ in go(arr(lit('fac'), SMT(100), lit('='), x))(log, solver):
     print(
       solver, solver.check(), 'x =', 
       (solver.model()[x.a] if solver.check() == z3.sat else None),
@@ -287,7 +293,7 @@ def test_factorial():
   x = SMT(z3.Int('x'))
   log = []
   solver = z3.Solver()
-  for _ in go([lit('fac'), x, lit('='), SMT(720*7)])(log, solver):
+  for _ in go(arr(lit('fac'), x, lit('='), SMT(720*7)))(log, solver):
     print(
       solver, solver.check(), 'x =', 
       (solver.model()[x.a] if solver.check() == z3.sat else None),
@@ -301,7 +307,7 @@ def test_pythags():
   #   {0 < A}, {A <= B}, {B <= C}, {C <= N}
   #   {A^2 + B^2 = C^2}.
   go = lambda t: lambda log, solver: (lambda a, b, c, n: conj(
-    unify(t, [lit('pythag'), a, b, c, n]),
+    unify(t, arr(lit('pythag'), a, b, c, n)),
     add(0 < a.a, a.a <= b.a, b.a <= c.a, c.a <= n.a, a.a**2 + b.a**2 == c.a**2)
   )(log, solver))(
     SMT(z3.Int(nab())), SMT(z3.Int(nab())),
@@ -312,7 +318,7 @@ def test_pythags():
   c = SMT(z3.Int('c'))
   log = []
   solver = z3.Solver()
-  for _ in go([lit('pythag'), a, b, c, SMT(30)])(log, solver):
+  for _ in go(arr(lit('pythag'), a, b, c, SMT(30)))(log, solver):
     solver.push()
     while solver.check() == z3.sat:
       m = solver.model()
