@@ -3,28 +3,28 @@ import z3
 def mk():
   memo = {}
   strs = []
+  # lit : string -> atom
   def lit(s):
     if s not in memo:
       memo[s] = len(strs)
       strs.append(s)
     return memo[s]
+  # nab(la) : unit -> fresh atom
   def nab():
     n = len(strs)
     strs.append("'" + str(n))
     return n
+  # pp_lit : atom -> str
   def pp_lit(n):
     return strs[n] if n < len(strs) else "'" + str(n)
   return lit, nab, pp_lit
-# lit : string -> lit
-# nab(la) : unit -> fresh lit
-# pp_lit : lit -> string
 lit, nab, pp_lit = mk()
 del mk
 
 # fresh unification variable
 class Var:
   def __init__(self):
-    self.a = self
+    self.a = self # initially a self-loop
 
 # constraint
 class SMT:
@@ -107,7 +107,7 @@ def add(*fs):
     if solver.check() == z3.sat: yield
   return res
 
-# conj, disj : action .. -> action
+# conj : action .. -> action
 def conj(*fs):
   def res(log, solver):
     def go(fs):
@@ -123,6 +123,8 @@ def conj(*fs):
           solver.pop()
     return go(fs)
   return res
+
+# disj : action .. -> action
 def disj(*fs):
   def res(log, solver):
     n = len(log)
@@ -133,6 +135,15 @@ def disj(*fs):
       solver.pop()
   return res
 
+# program = term -> action
+# trace : program -> program
+def trace(f):
+  def res(t):
+    print(zonk(t))
+    return f(t)
+  return res
+
+# expand out non-cyclic uvars
 def zonk(t, verbose=False):
   done = set()
   def go(t):
@@ -147,15 +158,10 @@ def zonk(t, verbose=False):
     else: raise ValueError(f"Can't zonk {t}")
   return go(t)
 
-def trace(f):
-  def res(t):
-    print(zonk(t))
-    return f(t)
-  return res
-
 def pp_zonked(t):
   return t if type(t) is str else '[' + ' '.join(map(pp_zonked, t)) + ']'
 
+# appending (potentially infinite) lists
 def test_app():
   # nil ++ XS = XS
   # (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS
@@ -217,6 +223,7 @@ def test_app():
   print(pp_zonked(zonk(xs)))
   print()
 
+# basic backtracking to find more solutions
 def test_conj_back():
   # q a. q b. r c. r d.
   # p X Y <== q X, r Y.
@@ -244,6 +251,7 @@ def test_conj_back():
   print(pp_zonked(zonk(x)), pp_zonked(zonk(y)))
   print()
 
+# constraint solving
 def test_factorial():
   # fac 0 = 1.
   # fac N = K <== {N > 0}, {M = N - 1}, fac M = P, {N * P = K}
@@ -287,6 +295,7 @@ def test_factorial():
   print(solver)
   print()
 
+# enumerating all solutions to constraints
 def test_pythags():
   # pythag A B C N <==
   #   {0 < A}, {A <= B}, {B <= C}, {C <= N}

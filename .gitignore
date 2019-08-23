@@ -1,9 +1,2 @@
-lexer.c
-lexer.h
-parser.tab.c
-parser.tab.h
-stitch
+__pycache__
 *.swp
-.merlin
-_build
-dune-project
