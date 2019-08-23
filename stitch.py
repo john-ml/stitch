@@ -207,6 +207,22 @@ def test_app():
   undo(log, 0)
   print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(z)))
   print()
+  # XS ~ ('100 :: XS)
+  # YS ~ ('100 :: ('100 :: ZS))
+  # ZS ~ ('100 :: YS)
+  # XS ~ YS
+  xs, ys, zs = Var(), Var(), Var()
+  print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(zs)))
+  log, _, _ = run(conj(
+    unify(xs, cons(100, xs)),
+    unify(ys, cons(100, cons(100, zs))),
+    unify(zs, cons(100, ys)),
+    unify(xs, ys),
+  ))
+  print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(zs)))
+  undo(log, 0)
+  print(pp_zonked(zonk(xs)), pp_zonked(zonk(ys)), pp_zonked(zonk(zs)))
+  print()
   # (98 :: (99 :: nil)) ++ (100 :: (101 :: nil)) = (98 :: XS)
   # ---------------------------------------------------------
   # XS ~ (99 :: (100 :: (101 :: nil)))
@@ -262,7 +278,7 @@ def test_conj_back():
   print()
 
 # constraint solving
-def test_factorial():
+def test_smt():
   # fac 0 = 1.
   # fac {N + 1} = P <== {N >= 0}, {(N + 1) * M = P}, fac N = M.
   go = lambda t: lambda log, solver: disj(
@@ -300,9 +316,7 @@ def test_factorial():
     )
   print(solver)
   print()
-
-# enumerating all solutions to constraints
-def test_pythags():
+  # enumerating all solutions to constraints
   # pythag A B C N <==
   #   {0 < A}, {A <= B}, {B <= C}, {C <= N}
   #   {A^2 + B^2 = C^2}.
@@ -327,9 +341,24 @@ def test_pythags():
       solver.add(z3.Not(z3.And(a.a == ma, b.a == mb, c.a == mc)))
     solver.pop()
   print()
+  # cbrt {N * N * N} = N.
+  go = lambda t: (lambda n: conj(
+    unify(t, arr(lit('cbrt'), SMT(n.a * n.a * n.a), lit('='), n))
+  ))(SMT(z3.Int(nab())))
+  n = SMT(z3.Int('n'))
+  log = []
+  solver = z3.Solver()
+  for _ in go(arr(lit('cbrt'), SMT(2019 * 2019 * 2019), lit('='), n))(log, solver):
+    solver.push()
+    while solver.check() == z3.sat:
+      m = solver.model()
+      mn = m[n.a]
+      print(f'n = {mn}')
+      solver.add(n.a != mn)
+    solver.pop()
+  print()
 
 if __name__ == '__main__':
   test_app()
   test_conj_back()
-  test_factorial()
-  test_pythags()
+  test_smt()
