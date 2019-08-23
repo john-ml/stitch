@@ -52,7 +52,7 @@ let XS = YS?
 let XS = (100 :: (100 :: XS)),
 let YS = (100 :: (100 :: (100 :: ZS))),
 let ZS = (100 :: YS),
-let ZS = YS?
+let XS = YS?
 -- yes
 ```
 
