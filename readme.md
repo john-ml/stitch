@@ -14,8 +14,8 @@ but you have to write in abstract syntax.
 ```hs
 map _ nil = nil.
 map F (X :: XS) = (Y :: YS) <==
-  F X = Y,
-  map F XS = YS.
+  F X = Y,
+  map F XS = YS.
 
 z + N = N.
 s N + M = (s P) <== N + M = P.

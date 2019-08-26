@@ -358,7 +358,63 @@ def test_smt():
     solver.pop()
   print()
 
+from lark import Lark
+grammar = Lark('''
+%import common.WS
+%ignore WS
+%ignore COMMENT
+start: statement*
+statement: term ("<==" term ("," term)*)? END
+
+term: (LIT | VAR | "{" (smt_form | smt_rel) "}" | "(" term ")")+
+
+smt_form: smt_dis | smt_form "->" smt_dis
+smt_dis: smt_con | smt_dis "\\\\/" smt_con
+smt_con: smt_rel | smt_con "/\\\\" smt_rel
+smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
+smt_sum: smt_prod | smt_sum ADD smt_prod
+smt_prod: smt_atom | smt_prod MUL smt_atom
+smt_atom: VAR | "(" smt_rel ")"
+
+NOT: "~"
+REL: "=" | "/=" | "<" | ">" | "<=" | ">="
+ADD: "+" | "-"
+MUL: "*" | "/"
+
+LIT: /(?!<==)[^-(){},;.?A-Z\\s][^(){},;.?\\s]*/
+VAR: /[A-Z][a-zA-Z0-9_'-]*/ | "_"
+END: "." | "?"
+
+COMMENT: /--[^\\n]+/
+''')
+parse = grammar.parse
+
 if __name__ == '__main__':
-  test_app()
-  test_conj_back()
-  test_smt()
+  #test_app()
+  #test_conj_back()
+  #test_smt()
+
+  print(parse('''
+    -- Concatenate two lists
+    nil ++ XS = XS.
+    (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS.
+
+    -- Map a function over a list
+    map _ nil = nil.
+    map F (X :: XS) = (Y :: YS) <==
+      F X = Y,
+      map F XS = YS.
+  '''))
+  print()
+
+  print(parse('''
+    -- Square root
+    sqrt {N * N} = N.
+
+    -- Conjunction
+    conj {F} {G} <== {F /\\ G}.
+
+    -- Sample query
+    p X?
+  '''))
+  print()
