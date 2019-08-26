@@ -368,13 +368,13 @@ statement: term ("<==" term ("," term)*)? END
 
 term: (LIT | VAR | "{" (smt_form | smt_rel) "}" | "(" term ")")+
 
-smt_form: smt_dis | smt_form "->" smt_dis
-smt_dis: smt_con | smt_dis "\\\\/" smt_con
-smt_con: smt_rel | smt_con "/\\\\" smt_rel
-smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
-smt_sum: smt_prod | smt_sum ADD smt_prod
-smt_prod: smt_atom | smt_prod MUL smt_atom
-smt_atom: VAR | "(" smt_rel ")"
+?smt_form: smt_dis | smt_form "->" smt_dis
+?smt_dis: smt_con | smt_dis "\\\\/" smt_con
+?smt_con: smt_rel | smt_con "/\\\\" smt_rel
+?smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
+?smt_sum: smt_prod | smt_sum ADD smt_prod
+?smt_prod: smt_atom | smt_prod MUL smt_atom
+?smt_atom: VAR | "(" smt_rel ")"
 
 NOT: "~"
 REL: "=" | "/=" | "<" | ">" | "<=" | ">="
