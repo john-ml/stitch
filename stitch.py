@@ -358,36 +358,91 @@ def test_smt():
     solver.pop()
   print()
 
-from lark import Lark
-grammar = Lark('''
-%import common.WS
-%ignore WS
-%ignore COMMENT
-start: statement*
-statement: term ("<==" term ("," term)*)? END
+def parse(s):
+  from lark import Lark, Transformer
+  import lark
+  grammar = Lark('''
+  %import common.WS
+  %ignore WS
+  %ignore COMMENT
+  start: (fact | query)*
+  fact: term ("<==" _rhs)? "."
+  query: _rhs "?"
+  _rhs: rhs_dis
+  ?rhs_dis: rhs_con | rhs_dis ";" rhs_con
+  ?rhs_con: _rhs_atom | rhs_con "," _rhs_atom
+  _rhs_atom: term | "(" _rhs ")"
 
-term: (LIT | VAR | "{" (smt_form | smt_rel) "}" | "(" term ")")+
+  term: _atom | term _atom
+  _atom: LIT | VAR | smt | "(" term ")"
 
-?smt_form: smt_dis | smt_form "->" smt_dis
-?smt_dis: smt_con | smt_dis "\\\\/" smt_con
-?smt_con: smt_rel | smt_con "/\\\\" smt_rel
-?smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
-?smt_sum: smt_prod | smt_sum ADD smt_prod
-?smt_prod: smt_atom | smt_prod MUL smt_atom
-?smt_atom: VAR | "(" smt_rel ")"
+  smt: "{" (smt_form | smt_rel) "}"
+  ?smt_form: smt_or | smt_form "->" smt_or
+  ?smt_or: smt_and | smt_or "\\\\/" smt_and
+  ?smt_and: smt_rel | smt_and "/\\\\" smt_rel
+  ?smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
+  ?smt_sum: smt_prod | smt_sum ADD smt_prod
+  ?smt_prod: _smt_atom | smt_prod MUL _smt_atom
+  _smt_atom: VAR | "(" smt_rel ")"
 
-NOT: "~"
-REL: "=" | "/=" | "<" | ">" | "<=" | ">="
-ADD: "+" | "-"
-MUL: "*" | "/"
+  NOT: "~"
+  REL: "=" | "/=" | "<" | ">" | "<=" | ">="
+  ADD: "+" | "-"
+  MUL: "*" | "/"
 
-LIT: /(?!<==)[^-(){},;.?A-Z\\s][^(){},;.?\\s]*/
-VAR: /[A-Z][a-zA-Z0-9_'-]*/ | "_"
-END: "." | "?"
+  LIT: /(?!<==)[^-(){},;.?A-Z\\s][^(){},;.?\\s]*/
+  VAR: /[A-Z][a-zA-Z0-9_'-]*/ | "_"
 
-COMMENT: /--[^\\n]+/
-''')
-parse = grammar.parse
+  COMMENT: /--[^\\n]+/
+  ''')
+  def translate(children):
+    def go(child):
+      if type(child) is not lark.lexer.Token: return child
+      elif child.type == 'LIT': return lit(child.value)
+      else: return child.value
+    return list(map(go, children))
+  def uninfix(xs): return xs[1], xs[0], xs[2]
+  class Translate(Transformer):
+    def start(self, statements):
+      facts = []
+      queries = []
+      for ty, terms in statements:
+        (facts if ty == 'fact' else queries).append(terms)
+      return 'program', facts, queries
+    def fact(self, terms): return ('fact', terms)
+    def query(self, terms): return ('query', terms)
+    def term(self, children):
+      if len(children) == 1: return translate(children)[0]
+      else: return translate(children)
+    def smt(self, children): return 'smt', translate(children)[0]
+    def smt_form(self, children): return ('impl', *translate(children))
+    def smt_or(self, children): return ('or', *translate(children))
+    def smt_and(self, children): return ('and', *translate(children))
+    def smt_sum(self, children): return uninfix(translate(children))
+    def smt_prod(self, children): return uninfix(translate(children))
+    def smt_rel(self, children):
+      if len(children) == 3: return uninfix(translate(children))
+      else: return 'not', translate(children)[1]
+    def rhs_con(self, children): return ('con', *translate(children))
+    def rhs_dis(self, children): return ('dis', *translate(children))
+  return Translate().transform(grammar.parse(s))
+
+def match(x, *arms):
+  pairs = list(zip(*[iter(arms)] * 2))
+  def safe(f):
+    try: f(); return True
+    except: return False
+  for pat, arm in pairs:
+    if pat is any:
+      return arm(x)
+    elif type(pat) is type and type(x) is pat:
+      return arm(x)
+    elif type(pat) is type(lambda: None) and pat(x):
+      return arm(x)
+    elif safe(lambda: x[0]) and x[0] == pat:
+      return arm(*x[1:])
+  else:
+    raise ValueError('No matching pattern for ' + str(x))
 
 if __name__ == '__main__':
   #test_app()
@@ -409,10 +464,13 @@ if __name__ == '__main__':
 
   print(parse('''
     -- Square root
-    sqrt {N * N} = N.
+    sqrt {N * N} = {N}.
 
     -- Conjunction
     conj {F} {G} <== {F /\\ G}.
+    conj {F} {G} <== F, G.
+
+    f {F} {G} <== (F; G), G; F.
 
     -- Sample query
     p X?

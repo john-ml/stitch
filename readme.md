@@ -39,7 +39,7 @@ all (X :: XS) <== X, all XS.
 ## Cycles
 
 ```hs
--- Some sugar for binding temporaries
+-- Some notation for binding temporaries
 let X = X.
 
 -- Unify two infinite lists: XS = [100, 100, ..], YS = [100, Z, 100, Z, ..]
