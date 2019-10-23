@@ -481,7 +481,6 @@ def compile(p):
 if __name__ == '__main__':
   test_app()
   test_conj_back()
-  exit()
   test_smt()
 
   print(parse('''

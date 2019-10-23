@@ -330,9 +330,105 @@ test_smt = ->
     solver.pop!
   print!
 
+parse = s ->
+  import '/lark'
+  grammar = lark.Lark('''
+  %import common.WS
+  %ignore WS
+  %ignore COMMENT
+  start: (fact | query)*
+  fact: term ("<==" _rhs)? "."
+  query: _rhs "?"
+  _rhs: rhs_dis
+  ?rhs_dis: rhs_con | rhs_dis ";" rhs_con
+  ?rhs_con: _rhs_atom | rhs_con "," _rhs_atom
+  _rhs_atom: term | "(" _rhs ")"
+
+  term: _atom | term _atom
+  _atom: LIT | VAR | smt | "(" term ")"
+
+  smt: "{" (smt_form | smt_rel) "}"
+  ?smt_form: smt_or | smt_form "->" smt_or
+  ?smt_or: smt_and | smt_or "\\\\/" smt_and
+  ?smt_and: smt_rel | smt_and "/\\\\" smt_rel
+  ?smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
+  ?smt_sum: smt_prod | smt_sum ADD smt_prod
+  ?smt_prod: _smt_atom | smt_prod MUL _smt_atom
+  _smt_atom: VAR | "(" smt_rel ")"
+
+  NOT: "~"
+  REL: "=" | "/=" | "<" | ">" | "<=" | ">="
+  ADD: "+" | "-"
+  MUL: "*" | "/"
+
+  LIT: /(?!<==)[^-(){},;.?A-Z\\s][^(){},;.?\\s]*/
+  VAR: /[A-Z][a-zA-Z0-9_'-]*/ | "_"
+
+  COMMENT: /--[^\\n]+/
+  ''')
+  translate = children -> list (map go children) where
+    go = child -> if
+      not (type child is lark.lexer.Token) => child
+      child.type == 'LIT' => lit child.value
+      otherwise => child.value
+  uninfix = xs -> xs!!1, xs!!0, xs!!2
+  Translate = subclass lark.Transformer where
+    start = self statements ->
+      facts = []
+      queries = []
+      for (ty, terms) in statements =>
+        (if (ty == 'fact' => facts) (otherwise => queries)).append terms
+      'program', facts, queries
+    fact = self terms -> 'fact', terms
+    query = self terms -> 'query', terms
+    term = self children -> if
+      len children == 1 => translate children !! 0
+      otherwise => translate children
+    smt = self children -> 'smt', translate children !! 0
+    smt_form = self children -> ['implies'] + translate children
+    smt_or = self children -> ['or'] + translate children
+    smt_and = self children -> ['and'] + translate children
+    smt_sum = self children -> uninfix (translate children)
+    smt_prod = self children -> uninfix (translate children)
+    smt_rel = self children -> if
+      len children == 3 => uninfix (translate children)
+      otherwise => 'not', translate children !! 1
+    rhs_con = self children -> ['con'] + translate children
+    rhs_dis = self children -> ['dis'] + translate children
+  Translate!.transform (grammar.parse s)
+
 main = ->
   test_app!
   test_conj_back!
   test_smt!
+
+  print (parse '''
+    -- Concatenate two lists
+    nil ++ XS = XS.
+    (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS.
+
+    -- Map a function over a list
+    map _ nil = nil.
+    map F (X :: XS) = (Y :: YS) <==
+      F X = Y,
+      map F XS = YS.
+  ''')
+  print!
+
+  print (parse '''
+    -- Square root
+    sqrt {N * N} = {N}.
+
+    -- Conjunction
+    conj {F} {G} <== {F /\\ G}.
+    conj {F} {G} <== F, G.
+
+    f {F} {G} <== (F; G), G; F.
+
+    -- Sample query
+    p X?
+  ''')
+  print!
+
 
 main!
