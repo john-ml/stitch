@@ -415,7 +415,7 @@ def parse(s):
       if len(children) == 1: return translate(children)[0]
       else: return translate(children)
     def smt(self, children): return 'smt', translate(children)[0]
-    def smt_form(self, children): return ('impl', *translate(children))
+    def smt_form(self, children): return ('implies', *translate(children))
     def smt_or(self, children): return ('or', *translate(children))
     def smt_and(self, children): return ('and', *translate(children))
     def smt_sum(self, children): return uninfix(translate(children))
@@ -427,27 +427,62 @@ def parse(s):
     def rhs_dis(self, children): return ('dis', *translate(children))
   return Translate().transform(grammar.parse(s))
 
-def match(x, *arms):
-  pairs = list(zip(*[iter(arms)] * 2))
-  def safe(f):
-    try: f(); return True
-    except: return False
-  for pat, arm in pairs:
-    if pat is any:
-      return arm(x)
-    elif type(pat) is type and type(x) is pat:
-      return arm(x)
-    elif type(pat) is type(lambda: None) and pat(x):
-      return arm(x)
-    elif safe(lambda: x[0]) and x[0] == pat:
-      return arm(*x[1:])
-  else:
-    raise ValueError('No matching pattern for ' + str(x))
+def match(x):
+  def go(*arms):
+    pairs = list(zip(*[iter(arms)] * 2))
+    def safe(f):
+      try: f(); return True
+      except: return False
+    for pat, arm in pairs:
+      if pat is any: return arm(x)
+      elif type(pat) is type and type(x) is pat: return arm(x)
+      elif type(pat) is type(lambda: None) and pat(x): return arm(x)
+      elif safe(lambda: x[0]) and x[0] == pat: return arm(*x[1:])
+    else:
+      raise ValueError('No matching pattern for ' + str(x))
+  return go
+
+def throw(s): raise ValueError(s)
+
+def compile(p):
+  def cc_smt(form):
+    pass # TODO
+  # instantiate variables with fresh Var()s
+  def inst(terms):
+    names = {}
+    def get(x):
+      if x not in names: names[x] = nab()
+      return names[x]
+    def go(term):
+      return match (term) (
+        list, lambda terms: [inst(t) for t in terms],
+        str, get,
+        # TODO
+      )
+    return go(terms)
+  def cc_facts(facts):
+    def cc_fact(fact):
+      if len(fact) == 1:
+        return lambda _, t: unify(t, inst(fact))
+      else:
+        def res(rec, t):
+          fact = inst(fact)
+          hd, tl = fact[0], fact[1:]
+          return conj(unify(t, hd), *map(rec, tl))
+        return res
+    facts = [cc_fact(f) for f in facts]
+    rec = lambda t: lambda log, solver: disj(*(f(rec, t) for f in facts))(log, solver)
+    return res
+  return match (p) (
+    'program', lambda facts, queries:
+      (cc_facts(facts), cc_queries(queries)),
+  )
 
 if __name__ == '__main__':
-  #test_app()
-  #test_conj_back()
-  #test_smt()
+  test_app()
+  test_conj_back()
+  exit()
+  test_smt()
 
   print(parse('''
     -- Concatenate two lists
