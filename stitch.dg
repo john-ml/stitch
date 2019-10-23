@@ -32,7 +32,7 @@ SMT = subclass object where
 
 # log = mutable list of thunks that will undo destructive updates (aka trail)
 # solver = SMT solver
-# f : action = log, solver -> generator of None
+# f : action = log solver -> generator of None
 run = f ->
   log = []
   solver = z3.Solver!
@@ -40,7 +40,7 @@ run = f ->
   next g # force at least one success
   log, solver, g
 
-# unify : term, term -> action
+# unify : term term -> action
 unify = l r -> log solver -> (
   except
     err => yield unify_ log solver l r nop nop
@@ -118,12 +118,6 @@ disj = *:fs -> log solver ->
     undo log n
     solver.pop!
 
-# program = term -> action
-# trace : program -> program
-trace = f -> t ->
-  print (zonk t)
-  f t
-
 # expand out non-cyclic uvars
 zonk = t verbose:False -> go t where
   done = set!
@@ -140,6 +134,132 @@ zonk = t verbose:False -> go t where
 pp_zonked = t -> if
   type t is str => t
   otherwise => '[' + ' '.join(map pp_zonked t) + ']'
+
+parse = s ->
+  import '/lark'
+  grammar = lark.Lark('''
+  %import common.WS
+  %ignore WS
+  %ignore COMMENT
+  start: (fact | query)*
+  fact: term ("<==" _rhs)? "."
+  query: _rhs "?"
+  _rhs: rhs_dis
+  ?rhs_dis: rhs_con | rhs_dis ";" rhs_con
+  ?rhs_con: _rhs_atom | rhs_con "," _rhs_atom
+  _rhs_atom: term | "(" _rhs ")"
+
+  term: _atom | term _atom
+  _atom: LIT | VAR | smt | "(" term ")"
+
+  smt: "{" (smt_form | smt_rel) "}"
+  ?smt_form: smt_or | smt_form "->" smt_or
+  ?smt_or: smt_and | smt_or "\\\\/" smt_and
+  ?smt_and: smt_rel | smt_and "/\\\\" smt_rel
+  ?smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
+  ?smt_sum: smt_prod | smt_sum ADD smt_prod
+  ?smt_prod: _smt_atom | smt_prod MUL _smt_atom
+  _smt_atom: VAR | "(" smt_rel ")"
+
+  NOT: "~"
+  REL: "=" | "/=" | "<" | ">" | "<=" | ">="
+  ADD: "+" | "-"
+  MUL: "*" | "/"
+
+  LIT: /(?!<==)[^-(){},;.?A-Z\\s][^(){},;.?\\s]*/
+  VAR: /[A-Z][a-zA-Z0-9_'-]*/ | "_"
+
+  COMMENT: /--[^\\n]+/
+  ''')
+  translate = children -> tuple (map go children) where
+    go = child -> if
+      not (type child is lark.lexer.Token) => child
+      child.type == 'LIT' => lit child.value
+      otherwise => child.value
+  uninfix = xs -> xs!!1, xs!!0, xs!!2
+  Translate = subclass lark.Transformer where
+    start = self statements ->
+      facts = []
+      queries = []
+      for (ty, terms) in statements =>
+        (if (ty == 'fact' => facts) (otherwise => queries)).append terms
+      'program', facts, queries
+    fact = self terms -> 'fact', terms
+    query = self terms -> 'query', terms
+    term = self children -> if
+      len children == 1 => translate children !! 0
+      otherwise => translate children
+    smt = self children -> 'smt', translate children !! 0
+    smt_form = self children -> ('implies',) + translate children
+    smt_or = self children -> ('or',) + translate children
+    smt_and = self children -> ('and',) + translate children
+    smt_sum = self children -> uninfix (translate children)
+    smt_prod = self children -> uninfix (translate children)
+    smt_rel = self children -> if
+      len children == 3 => uninfix (translate children)
+      otherwise => 'not', translate children !! 1
+    rhs_con = self children -> ('con',) + translate children
+    rhs_dis = self children -> ('dis',) + translate children
+  Translate!.transform (grammar.parse s)
+
+# a term' is a function that is waiting for an environment to fill in metavariables
+# term' = (Dict str term) -> term
+# cc_term : ast_term -> term'
+cc_term = t -> env -> if
+  type t is str => env!!t
+  type t is int => t
+  type t is tuple => tuple (map (s -> (cc_term s) env) t)
+  otherwise => raise ValueError ('Bad term: ' + str t)
+
+# an action' is an action waiting for metas + recursive callback
+# action' = program (Dict str term) -> action
+# cc_clause : ast_clause -> action'
+cc_clause = (clause = hd, *tl) -> go env -> if
+  hd == 'con' => conj *:(map (c -> (cc_clause c) go env) tl)
+  hd == 'dis' => disj *:(map (c -> (cc_clause c) go env) tl)
+  hd == 'smt' => raise NotImplementedError
+  otherwise => go (list (map (c -> (cc_term c) env) clause))
+
+# ast_fact = ast_term :: [ast_clause]
+# fact_vars : ast_fact -> Set str
+fact_vars = terms -> collect clause_vars terms where
+  collect = f xs -> foldl (|) (set []) (map f xs)
+  clause_vars = t -> if
+    type t is str => set [t]
+    type t is int => set []
+    type t is tuple =>
+      hd, *tl = t
+      if hd == 'con' or hd == 'dis' => collect clause_vars tl
+         otherwise => collect clause_vars t
+    otherwise => raise ValueError ('Bad AST clause: ' + str t)
+
+# env_vars : ast_fact -> Dict str term
+env_vars = terms -> dict (map (v -> (v, Var!)) (fact_vars terms))
+
+# a program' is a function that is waiting for a function to fill out 'recursive calls'
+# program' = program -> program
+# cc_fact : ast_fact -> program'
+cc_fact = (fact = term, *terms) ->
+  env = env_vars fact
+  goal = (cc_term term) env
+  go -> t -> conj (unify t goal) *:map (c -> (cc_clause c) go env) terms
+
+# lift conjunction and disjunction to program'
+# conj_p, disj_p : Gen program' -> program'
+conj_p = ps -> go -> t -> conj *:(map (p -> (p go) t) ps)
+disj_p = ps -> go -> t -> disj *:(map (p -> (p go) t) ps)
+
+# cc_facts : [ast_fact] -> program
+cc_facts = facts -> go = t -> ((disj_p (map cc_fact facts)) go) t
+
+# ast_query = [ast_term]
+# cc_query : ast_query -> ([Var], [term])
+
+# program = term -> action
+# trace : program -> program
+trace = f -> t ->
+  print (zonk t)
+  f t
 
 arr = *:ts ->
   res, *ts = ts
@@ -330,79 +450,12 @@ test_smt = ->
     solver.pop!
   print!
 
-parse = s ->
-  import '/lark'
-  grammar = lark.Lark('''
-  %import common.WS
-  %ignore WS
-  %ignore COMMENT
-  start: (fact | query)*
-  fact: term ("<==" _rhs)? "."
-  query: _rhs "?"
-  _rhs: rhs_dis
-  ?rhs_dis: rhs_con | rhs_dis ";" rhs_con
-  ?rhs_con: _rhs_atom | rhs_con "," _rhs_atom
-  _rhs_atom: term | "(" _rhs ")"
-
-  term: _atom | term _atom
-  _atom: LIT | VAR | smt | "(" term ")"
-
-  smt: "{" (smt_form | smt_rel) "}"
-  ?smt_form: smt_or | smt_form "->" smt_or
-  ?smt_or: smt_and | smt_or "\\\\/" smt_and
-  ?smt_and: smt_rel | smt_and "/\\\\" smt_rel
-  ?smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
-  ?smt_sum: smt_prod | smt_sum ADD smt_prod
-  ?smt_prod: _smt_atom | smt_prod MUL _smt_atom
-  _smt_atom: VAR | "(" smt_rel ")"
-
-  NOT: "~"
-  REL: "=" | "/=" | "<" | ">" | "<=" | ">="
-  ADD: "+" | "-"
-  MUL: "*" | "/"
-
-  LIT: /(?!<==)[^-(){},;.?A-Z\\s][^(){},;.?\\s]*/
-  VAR: /[A-Z][a-zA-Z0-9_'-]*/ | "_"
-
-  COMMENT: /--[^\\n]+/
-  ''')
-  translate = children -> list (map go children) where
-    go = child -> if
-      not (type child is lark.lexer.Token) => child
-      child.type == 'LIT' => lit child.value
-      otherwise => child.value
-  uninfix = xs -> xs!!1, xs!!0, xs!!2
-  Translate = subclass lark.Transformer where
-    start = self statements ->
-      facts = []
-      queries = []
-      for (ty, terms) in statements =>
-        (if (ty == 'fact' => facts) (otherwise => queries)).append terms
-      'program', facts, queries
-    fact = self terms -> 'fact', terms
-    query = self terms -> 'query', terms
-    term = self children -> if
-      len children == 1 => translate children !! 0
-      otherwise => translate children
-    smt = self children -> 'smt', translate children !! 0
-    smt_form = self children -> ['implies'] + translate children
-    smt_or = self children -> ['or'] + translate children
-    smt_and = self children -> ['and'] + translate children
-    smt_sum = self children -> uninfix (translate children)
-    smt_prod = self children -> uninfix (translate children)
-    smt_rel = self children -> if
-      len children == 3 => uninfix (translate children)
-      otherwise => 'not', translate children !! 1
-    rhs_con = self children -> ['con'] + translate children
-    rhs_dis = self children -> ['dis'] + translate children
-  Translate!.transform (grammar.parse s)
-
 main = ->
-  test_app!
-  test_conj_back!
-  test_smt!
+  #test_app!
+  #test_conj_back!
+  #test_smt!
 
-  print (parse '''
+  print (res = parse '''
     -- Concatenate two lists
     nil ++ XS = XS.
     (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS.
@@ -413,6 +466,8 @@ main = ->
       F X = Y,
       map F XS = YS.
   ''')
+  print (res!!1!!3)
+  print (env_vars (res!!1!!3))
   print!
 
   print (parse '''
