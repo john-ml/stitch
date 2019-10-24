@@ -304,6 +304,9 @@ evaluate = p verbose:False ->
       for (name, x) in xs.items! =>
         print name ':=' (pp_zonked (zonk x))
 
+# interpret : str -> None
+interpret = evaluate <- parse
+
 # program = term -> action
 # trace : program -> program
 trace = f -> t ->
@@ -533,7 +536,7 @@ test_smt = ->
     solver.pop!
   print!
 
-main = ->
+test = ->
   test_exhaustive!
   test_app!
   test_conj_back!
@@ -578,8 +581,21 @@ main = ->
     -- Sample query
     (1 :: (2 :: nil)) ++ (3 :: (4 :: nil)) = XS?
     (1 :: (2 :: nil)) ++ XS = (1 :: (2 :: (3 :: (4 :: nil))))?
+
+    -- Last element of a list
+    last XS = X <== INIT ++ (X :: nil) = XS.
+
+    -- last [1, 2, 3, 4]
+    last (1 :: (2 :: (3 :: (4 :: nil)))) = X?
   '''
   print res
   evaluate res
 
-main!
+if __name__ == '__main__' =>
+  import '/sys'
+  if len sys.argv == 1 =>
+    test!
+  otherwise =>
+    for fname in drop 1 sys.argv =>
+      with fd = open fname 'r' =>
+        interpret fd.read!
