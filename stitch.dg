@@ -592,10 +592,25 @@ test = ->
   evaluate res
 
 if __name__ == '__main__' =>
-  import '/sys'
-  if len sys.argv == 1 =>
-    test!
-  otherwise =>
-    for fname in drop 1 sys.argv =>
-      with fd = open fname 'r' =>
-        interpret fd.read!
+  interpret_all = files -> if
+    len files > 0 =>
+      import '/sys'
+      for fname in files =>
+        with fd = open fname 'r' =>
+          interpret fd.read!
+    otherwise =>
+      raise NotImplementedError
+  import '/argparse'
+  parser = argparse.ArgumentParser description:'Stitch'
+  parser.add_argument 'files'
+    metavar:'FILES'
+    type:str
+    nargs:'*'
+    help:'files to interpret'
+  parser.add_argument '--interpret'
+    dest:'accumulate'
+    action:'store_const'
+    const:interpret_all
+    help:'interpret the files'
+  args = parser.parse_args!
+  args.accumulate args.files
