@@ -32,7 +32,9 @@ SMT = subclass object where
 
 # log = mutable list of thunks that will undo destructive updates (aka trail)
 # solver = SMT solver
-# f : action = log solver -> generator of None
+# action = log solver verbose:False -> Gen None
+# after the generator returned by action is exhausted log and solver should be fully restored to original states
+# run : action -> log, solver, Gen None
 run = f ->
   log = []
   solver = z3.Solver!
@@ -41,23 +43,38 @@ run = f ->
   log, solver, g
 
 # unify : term term -> action
-unify = l r -> log solver -> (
+unify = l r -> log solver verbose:False -> (
+  if verbose =>
+    print 'vvv' (pp_zonked (zonk l))
+    print '^^^' (pp_zonked (zonk r))
+  n = len log
+  solver.push!
   except
-    err => yield unify_ log solver l r nop nop
-    err :: No => None
+    err =>
+      unify_ log solver verbose l r nop nop
+      if verbose => print 'OK'
+      yield None
+    err :: No =>
+      undo log n
+      solver.pop!
+      if verbose => print 'X'
 ) where
   No = subclass Exception where
   nop = _ -> None
   # set_l x stores x in l's parent location
   #   i.e. pointer graph goes (p -> l) x ==set_l x==> (p -> x) l
   #   l isn't destroyed, but just isolated from the old reference graph
-  unify_ = log solver l r set_l set_r ->
+  unify_ = log solver verbose l r set_l set_r ->
     # helpers
-    set_var = v -> x -> v.a := x
-    set_arr = arr i -> x -> arr!!i := x
+    set_var = v -> x ->
+      if verbose => print (len log) 'mutating' v ':=' x
+      v.a := x
+    set_arr = arr i -> x ->
+      if verbose => print (len log) 'mutating' arr '!!' i ':=' x
+      arr!!i := x
     inst = v e ->
       log.append (-> (set_var v) v)
-      v.a := e
+      (set_var v) e
     cyc = v e set_e ->
       log.append (-> set_e e)
       set_e v
@@ -92,31 +109,28 @@ unify = l r -> log solver -> (
 undo = log n -> while len log > n => log.pop! !
 
 # add : z3 formula .. -> action
-add = *:fs -> log solver ->
+add = *:fs -> log solver verbose:False ->
+  if verbose => print 'assert' sep:' /\\ ' *:fs
   solver.add *:fs
   if solver.check! == z3.sat => yield None
 
 # conj : action .. -> action
-conj = *:fs -> log solver -> go fs where
+conj = *:fs -> log solver verbose:False -> go fs where
   go = fs -> if
     len fs == 0 => yield None
     otherwise =>
       f, *fs = fs
-      n = len log
-      for _ in f log solver =>
-        solver.push!
+      for _ in f log solver verbose:verbose =>
         yield from go fs
-        undo log n
-        solver.pop!
 
 # disj : action .. -> action
-disj = *:fs -> log solver ->
-  n = len log
+disj = *:fs -> log solver verbose:False ->
   for f in fs =>
+    n = len log
     solver.push!
-    yield from f log solver
-    undo log n
+    yield from f log solver verbose:verbose
     solver.pop!
+    undo log n
 
 # expand out non-cyclic uvars
 zonk = t verbose:False -> go t where
@@ -204,23 +218,23 @@ parse = s ->
 
 # a term' is a function that is waiting for an environment to fill in metavariables
 # term' = (Dict str term) -> term
-# cc_term : ast_term -> term'
-cc_term = t -> env -> if
+# den_term : ast_term -> term'
+den_term = t -> env -> if
   type t is str => env!!t
   type t is int => t
-  type t is tuple => tuple (map (s -> (cc_term s) env) t)
+  type t is tuple => list (map (s -> (den_term s) env) t)
   otherwise => raise ValueError ('Bad term: ' + str t)
 
 # an action' is an action waiting for metas + recursive callback
 # action' = program (Dict str term) -> action
-# cc_clause : ast_clause -> action'
-cc_clause = (clause = hd, *tl) -> go env -> if
-  hd == 'con' => conj *:(map (c -> (cc_clause c) go env) tl)
-  hd == 'dis' => disj *:(map (c -> (cc_clause c) go env) tl)
+# den_clause : ast_clause -> action'
+den_clause = (clause = hd, *tl) -> go env -> if
+  hd == 'con' => conj *:(map (c -> (den_clause c) go env) tl)
+  hd == 'dis' => disj *:(map (c -> (den_clause c) go env) tl)
   hd == 'smt' => raise NotImplementedError
-  otherwise => go (list (map (c -> (cc_term c) env) clause))
+  otherwise => go (list (map (c -> (den_term c) env) clause))
 
-# ast_fact = ast_term :: [ast_clause]
+# ast_fact = [ast_clause] where the first element is ast_term
 # fact_vars : ast_fact -> Set str
 fact_vars = terms -> collect clause_vars terms where
   collect = f xs -> foldl (|) (set []) (map f xs)
@@ -233,27 +247,55 @@ fact_vars = terms -> collect clause_vars terms where
          otherwise => collect clause_vars t
     otherwise => raise ValueError ('Bad AST clause: ' + str t)
 
-# env_vars : ast_fact -> Dict str term
-env_vars = terms -> dict (map (v -> (v, Var!)) (fact_vars terms))
+# nablas : Set str -> Dict str (fresh Var)
+nablas = dict <- bind map (v -> v, Var!)
 
-# a program' is a function that is waiting for a function to fill out 'recursive calls'
+# fact_env : ast_fact -> Dict str Var
+fact_env = nablas <- fact_vars
+
+# a program' is a program that is waiting for a program to fill out 'recursive calls'
 # program' = program -> program
-# cc_fact : ast_fact -> program'
-cc_fact = (fact = term, *terms) ->
-  env = env_vars fact
-  goal = (cc_term term) env
-  go -> t -> conj (unify t goal) *:map (c -> (cc_clause c) go env) terms
+# den_fact : ast_fact -> program'
+den_fact = (fact = term, *terms) -> go -> t ->
+  env = fact_env fact
+  print 'term =' term 'terms =' terms 't =' t 'env =' env
+  goal = (den_term term) env
+  conj (unify t goal) *:(map (c -> (den_clause c) go env) terms)
 
-# lift conjunction and disjunction to program'
-# conj_p, disj_p : Gen program' -> program'
-conj_p = ps -> go -> t -> conj *:(map (p -> (p go) t) ps)
+# lift disjunction to program'
+# disj_p : Gen program' -> program'
 disj_p = ps -> go -> t -> disj *:(map (p -> (p go) t) ps)
 
-# cc_facts : [ast_fact] -> program
-cc_facts = facts -> go = t -> ((disj_p (map cc_fact facts)) go) t
+# den_facts : [ast_fact] -> program'
+den_facts = facts -> disj_p (map den_fact facts)
 
-# ast_query = [ast_term]
-# cc_query : ast_query -> ([Var], [term])
+# lift disjunction to program'
+# conj_a : Gen program' -> program'
+conj_a = as -> go env -> conj *:(map (a -> a go env) as)
+
+# ast_query = [ast_clause]
+# den_query : ast_query -> action'
+den_query = cs -> conj_a (map den_clause cs)
+
+# query_vars : ast_query -> Set str
+query_vars = fact_vars
+
+# query_env : ast_query -> Dict str Var
+query_env = fact_env
+
+# ast_program = str * [ast_fact] * [ast_query]
+# den_program : ast_program -> Gen (Dict str Var * action)
+den_program = (_, facts, queries) ->
+  print 'facts =' facts 'queries =' queries
+  go = t -> log solver verbose:False ->
+    (((den_facts facts) go) t) log solver verbose:verbose
+  map (q -> (env = query_env q), (den_query q) go env) queries
+
+# label : str action -> action
+label = s a -> log solver verbose:False ->
+  if verbose => print (len log) '-->' s!
+  yield from a log solver verbose:verbose
+  if verbose => print (len log) '<--' s!
 
 # program = term -> action
 # trace : program -> program
@@ -268,6 +310,31 @@ arr = *:ts ->
     res = [res, h]
   res
 
+# make sure only 1 result is produced when there is only one result
+test_exhaustive = ->
+  # z = z
+  # (s N) = (s P) <== N = P.
+  eq = lit '='
+  plus = lit '+'
+  z = lit 'z'
+  s = n -> arr (lit 's') n
+  n0 = Var!
+  go = t -> log solver verbose:False ->
+    base = label (-> 'disj 1 ' + pp_zonked (zonk t) + ' ' + pp_zonked (zonk n0)) (unify t (arr z eq z))
+    ind = label (-> 'disj 2' + pp_zonked (zonk t) + ' ' + pp_zonked (zonk n0)) (
+      label (-> 'conj') (conj
+        (label (-> 'conj 1' + pp_zonked (zonk t) + ' ' + pp_zonked (zonk n0)) (unify t (arr (s n) eq (s p))))
+        (label (-> 'conj 2' + pp_zonked (zonk t) + ' ' + pp_zonked (zonk n0)) (go (arr n eq p))))
+    ) where n, p = Var!, Var!
+    (label (-> 'disj') (disj base ind)) log solver verbose:verbose
+  # (s (s z)) = N?
+  log = []
+  solver = z3.Solver!
+  query = arr (s (s z)) eq n0
+  for _ in (go query) log solver =>
+    print 'n0 :=' (pp_zonked (zonk n0))
+  print!
+
 # appending (potentially infinite) lists
 test_app = ->
   # nil ++ XS = XS
@@ -276,20 +343,29 @@ test_app = ->
   app = lit '++'
   nil = lit 'nil'
   cons = h t -> arr h (lit '::') t
-  go = t -> log solver ->
-    base = unify t (arr nil app xs eq xs) where xs = Var!
+  xs0 = Var!
+  go = t -> log solver verbose:False ->
+    base = (unify t (arr nil app xs eq xs) where xs = Var!)
     ind = (
-      conj
+      (conj
         (unify t (arr (cons x xs) app ys eq (cons x zs)))
-        (go (arr xs app ys eq zs))
+        (go (arr xs app ys eq zs)))
     ) where x, xs, ys, zs = Var!, Var!, Var!, Var!
-    (disj base ind) log solver
+    (disj base ind) log solver verbose:verbose
   # ('100 :: ('101 :: nil)) ~ XS
   xs = Var!
   log, _, _ = run (unify (cons 100 (cons 101 nil)) xs)
   print (pp_zonked (zonk xs))
   undo log 0
   print (pp_zonked (zonk xs))
+  print!
+  # ('100 :: ('101 :: nil)) ++ ('102 :: ('103 :: nil)) = XS
+  #xs = Var!
+  log = []
+  solver = z3.Solver!
+  query = arr (cons 100 (cons 101 nil)) app (cons 102 (cons 103 nil)) eq xs0
+  for _ in (go query) log solver =>
+    print 'xs :=' (pp_zonked (zonk xs0))
   print!
   # XS ~ ('100 :: XS)
   # YS ~ ('100 :: (Z :: YS))
@@ -348,18 +424,18 @@ test_app = ->
 test_conj_back = ->
   # q a. q b. r c. r d.
   # p X Y <== q X, r Y.
-  go = t -> log solver ->
-    (disj
-      (unify t (arr (lit 'q') (lit 'a')))
-      (unify t (arr (lit 'q') (lit 'b')))
-      (unify t (arr (lit 'r') (lit 'c')))
-      (unify t (arr (lit 'r') (lit 'd')))
-      ((conj
-        (unify t (arr (lit 'p') x y))
-        (go (arr (lit 'q') x))
-        (go (arr (lit 'r') y))
+  go = t -> log solver verbose:False ->
+    (label (-> 'disj') (disj
+      (label (-> 'disj 1') (unify t (arr (lit 'q') (lit 'a'))))
+      (label (-> 'disj 2') (unify t (arr (lit 'q') (lit 'b'))))
+      (label (-> 'disj 3') (unify t (arr (lit 'r') (lit 'c'))))
+      (label (-> 'disj 4') (unify t (arr (lit 'r') (lit 'd'))))
+      (label (-> 'disj 5 = conj') (conj
+        (label (-> 'conj 1') (unify t (arr (lit 'p') x y)))
+        (label (-> 'conj 2') (go (arr (lit 'q') x)))
+        (label (-> 'conj 3') (go (arr (lit 'r') y)))
       ) where x, y = Var!, Var!)
-    ) log solver
+    )) log solver verbose:verbose
   # p X Y ==>
   #   X ~ a, Y = c;
   #   X ~ a, Y = d;
@@ -368,7 +444,7 @@ test_conj_back = ->
   x, y = Var!, Var!
   print (pp_zonked (zonk x)) (pp_zonked (zonk y))
   log = []
-  for _ in (go (arr (lit 'p') x y)) log z3.Solver! =>
+  for _ in (go (arr (lit 'p') x y)) log z3.Solver! verbose:False =>
     print (pp_zonked (zonk x)) (pp_zonked (zonk y))
   print (pp_zonked (zonk x)) (pp_zonked (zonk y))
   print!
@@ -377,7 +453,7 @@ test_conj_back = ->
 test_smt = ->
   # fac 0 = 1.
   # fac {N + 1} = P <== {N >= 0}, {(N + 1) * M = P}, fac N = M.
-  go = t -> log solver ->
+  go = t -> log solver verbose:False ->
     (disj
       (unify t (arr (lit 'fac') (SMT 0) (lit '=') (SMT 1)))
       ((conj
@@ -386,7 +462,7 @@ test_smt = ->
         (add ((n.a + 1) * m.a == p.a))
         (go (arr (lit 'fac') n (lit '=') m))
       ) where n, m, p = SMT (z3.Int nab!), SMT (z3.Int nab!), SMT (z3.Int nab!))
-    ) log solver
+    ) log solver verbose:verbose
   # fac 100! X
   # ----------
   # {X = 100!}
@@ -451,11 +527,12 @@ test_smt = ->
   print!
 
 main = ->
-  #test_app!
-  #test_conj_back!
-  #test_smt!
+  test_exhaustive!
+  test_app!
+  test_conj_back!
+  test_smt!
 
-  print (res = parse '''
+  res = parse '''
     -- Concatenate two lists
     nil ++ XS = XS.
     (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS.
@@ -465,9 +542,10 @@ main = ->
     map F (X :: XS) = (Y :: YS) <==
       F X = Y,
       map F XS = YS.
-  ''')
-  print (res!!1!!3)
-  print (env_vars (res!!1!!3))
+  '''
+  print res
+  #print (res!!1!!3)
+  #print (fact_env (res!!1!!3))
   print!
 
   print (parse '''
@@ -484,6 +562,24 @@ main = ->
     p X?
   ''')
   print!
+
+  res = parse '''
+    -- Concatenate two lists
+    nil ++ XS = XS.
+    (X :: XS) ++ YS = (X :: ZS) <== XS ++ YS = ZS.
+
+    -- Sample query
+    (1 :: (2 :: nil)) ++ (3 :: (4 :: nil)) = XS?
+  '''
+  print res
+  [(xs, action)] = list (den_program res)
+  print xs action
+  log = []
+  solver = z3.Solver!
+  for _ in action log solver =>
+    for (name, x) in xs.items! =>
+      print name ':=' (pp_zonked (zonk x))
+  exit!
 
 
 main!

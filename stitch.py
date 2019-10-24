@@ -190,6 +190,15 @@ def test_app():
   undo(log, 0)
   print(pp_zonked(zonk(xs)))
   print()
+  # ('100 :: ('101 :: nil)) ++ ('102 :: ('103 :: nil)) = XS
+  xs = Var()
+  log = []
+  solver = z3.Solver()
+  query = arr(
+    cons(100, cons(101, nil)), lit('++'), cons(102, cons(103, nil)), lit('='), xs)
+  for _ in go(query)(log, solver):
+    print('xs :=', pp_zonked(zonk(xs)))
+  print()
   # XS ~ ('100 :: XS)
   # YS ~ ('100 :: (Z :: YS))
   # ZS ~ YS
