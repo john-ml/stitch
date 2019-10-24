@@ -258,7 +258,6 @@ fact_env = nablas <- fact_vars
 # den_fact : ast_fact -> program'
 den_fact = (fact = term, *terms) -> go -> t ->
   env = fact_env fact
-  print 'term =' term 'terms =' terms 't =' t 'env =' env
   goal = (den_term term) env
   conj (unify t goal) *:(map (c -> (den_clause c) go env) terms)
 
@@ -286,7 +285,6 @@ query_env = fact_env
 # ast_program = str * [ast_fact] * [ast_query]
 # den_program : ast_program -> Gen (Dict str Var * action)
 den_program = (_, facts, queries) ->
-  print 'facts =' facts 'queries =' queries
   go = t -> log solver verbose:False ->
     (((den_facts facts) go) t) log solver verbose:verbose
   map (q -> (env = query_env q), (den_query q) go env) queries
@@ -296,6 +294,15 @@ label = s a -> log solver verbose:False ->
   if verbose => print (len log) '-->' s!
   yield from a log solver verbose:verbose
   if verbose => print (len log) '<--' s!
+
+# evaluate : ast_program verbose:False -> None
+evaluate = p verbose:False ->
+  for (xs, action) in den_program p =>
+    log = []
+    solver = z3.Solver!
+    for _ in action log solver verbose:verbose =>
+      for (name, x) in xs.items! =>
+        print name ':=' (pp_zonked (zonk x))
 
 # program = term -> action
 # trace : program -> program
@@ -570,16 +577,9 @@ main = ->
 
     -- Sample query
     (1 :: (2 :: nil)) ++ (3 :: (4 :: nil)) = XS?
+    (1 :: (2 :: nil)) ++ XS = (1 :: (2 :: (3 :: (4 :: nil))))?
   '''
   print res
-  [(xs, action)] = list (den_program res)
-  print xs action
-  log = []
-  solver = z3.Solver!
-  for _ in action log solver =>
-    for (name, x) in xs.items! =>
-      print name ':=' (pp_zonked (zonk x))
-  exit!
-
+  evaluate res
 
 main!
