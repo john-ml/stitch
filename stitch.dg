@@ -41,7 +41,7 @@ SMT = subclass object where
 
 # log = mutable list of thunks that will undo destructive updates (aka trail)
 # solver = SMT solver
-# action = log solver verbose:False -> Gen None
+# action = log solver **kw -> Gen None
 # after the generator returned by action is exhausted log and solver should be fully restored to original states
 # run : action -> log, solver, Gen None
 run = f ->
@@ -51,8 +51,8 @@ run = f ->
   next g # force at least one success
   log, solver, g
 
-# unify : term term -> action
-unify = l r -> log solver verbose:False -> (
+# unify : term term verbose:bool **kw -> action
+unify = l r -> log solver verbose:False **:kw -> (
   n = len log
   solver.push!
   except
@@ -121,7 +121,7 @@ unify = l r -> log solver verbose:False -> (
 undo = log n -> while len log > n => log.pop! !
 
 # add : z3 formula .. -> action
-add = *:fs -> log solver verbose:False ->
+add = *:fs -> log solver verbose:False **:kw ->
   if verbose =>
     print 'assert' end:' '
     print sep:' /\\ ' *:fs
@@ -129,25 +129,25 @@ add = *:fs -> log solver verbose:False ->
   if solver.check! == z3.sat => yield None
 
 # conj : action .. -> action
-conj = *:fs -> log solver verbose:False -> go fs where
+conj = *:fs -> log solver verbose:False **:kw -> go fs where
   go = fs -> if
     len fs == 0 => yield None
     otherwise =>
       f, *fs = fs
-      for _ in f log solver verbose:verbose =>
+      for _ in f log solver verbose:verbose **:kw =>
         yield from go fs
 
 # disj : action .. -> action
-disj = *:fs -> log solver verbose:False ->
+disj = *:fs -> log solver verbose:False **:kw ->
   for f in fs =>
     n = len log
     solver.push!
-    yield from f log solver verbose:verbose
+    yield from f log solver verbose:verbose **:kw
     solver.pop!
     undo log n
 
 # expand out non-cyclic uvars
-zonk = t verbose:False -> go t where
+zonk = t verbose:False **:kw -> go t where
   done = set!
   go = t -> if
     type t is int => pp_lit t
@@ -338,45 +338,69 @@ query_vars = fact_vars
 query_env = fact_env
 
 # use_solver : term -> action
-use_solver = t -> log solver verbose:False ->
+use_solver = t -> log solver verbose:False **:kw ->
   if verbose => print 'Trying to use solver on t =' t
   while type t is Var and type t is type t.a and t != t.a => t := t.a
   if verbose => print '2: type t =' (type t) 't =' (pp_zonked (zonk t))
   if type t is Var and type t.a is SMT => t := t.a
   if type t is SMT =>
     if verbose => print 'Using solver!'
-    yield from (add t.a) log solver verbose:verbose
+    yield from (add t.a) log solver verbose:verbose **:kw
   if verbose => print 'Solver not applicable.'
 
 # ast_program = str * [ast_fact] * [ast_query]
 # den_program : ast_program -> Gen (Dict str term * action)
 den_program = (_, facts, queries) ->
-  go = t -> log solver verbose:False ->
-    (disj (use_solver t) (((den_facts facts) go) t)) log solver verbose:verbose
+  init = verbose kw ->
+    kw0 = dict kw.items!
+    kw0!!'current_depth' := 0
+    if verbose =>
+      print 'init: depth =' (kw0!!'depth') 'current_depth =' (kw0!!'current_depth')
+    kw0
+  inc = verbose kw ->
+    kw0 = dict kw.items!
+    kw0!!'current_depth' += 1
+    if verbose =>
+      print 'inc: current_depth =' (kw0!!'current_depth') 'depth =' (kw0!!'depth')
+    kw0
+  deepen = go -> t -> log solver verbose:False **:kw -> (if
+    'depth' in kw => if
+      'current_depth' in kw => if
+        kw!!'current_depth' < kw!!'depth' => rec (inc verbose kw)
+        otherwise => []
+      otherwise => rec (init verbose kw)
+    otherwise => rec kw
+  ) where rec = kw -> (go t) log solver verbose:verbose **:kw
+  go = t -> log solver verbose:False **:kw ->
+    (disj (use_solver t) (((den_facts facts) (deepen go)) t))
+      log
+      solver
+      verbose:verbose
+      **:kw
   map (q -> (env = query_env q), (den_query q) go env) queries
 
 # label : str action -> action
-label = s a -> log solver verbose:False ->
+label = s a -> log solver verbose:False **:kw ->
   if verbose => print (len log) '-->' s!
-  yield from a log solver verbose:verbose
+  yield from a log solver verbose:verbose **:kw
   if verbose => print (len log) '<--' s!
 
-# evaluate : ast_program verbose:False -> None
-evaluate = p verbose:False ->
+# evaluate : ast_program verbose:False **:kw -> None
+evaluate = p verbose:False **:kw ->
   for (xs, action) in den_program p =>
     log = []
     solver = z3.Solver!
-    for _ in action log solver verbose:verbose =>
+    for _ in action log solver verbose:verbose **:kw =>
       if solver.check! == z3.sat => # TODO: more solutions!
         for (name, x) in xs.items! =>
           print name ':=' (pp_zonked (zonk x))
         print solver.model!
 
-# interpret : str -> None
-interpret = s verbose:False ->
+# interpret : str **:kwargs -> None
+interpret = s verbose:False **:kw ->
   ast = parse s
   if verbose => print 'ast =' ast
-  evaluate ast verbose:verbose
+  evaluate ast verbose:verbose **:kw
 
 # program = term -> action
 # trace : program -> program
@@ -401,13 +425,13 @@ test_exhaustive = ->
   s = n -> arr (lit 's') n
   n0 = Var!
   go = t -> log solver verbose:False ->
-    base = label (-> 'disj 1 ' + pp_zonked (zonk t) + ' ' + pp_zonked (zonk n0)) (unify t (arr z eq z))
-    ind = label (-> 'disj 2' + pp_zonked (zonk t) + ' ' + pp_zonked (zonk n0)) (
-      label (-> 'conj') (conj
-        (label (-> 'conj 1' + pp_zonked (zonk t) + ' ' + pp_zonked (zonk n0)) (unify t (arr (s n) eq (s p))))
-        (label (-> 'conj 2' + pp_zonked (zonk t) + ' ' + pp_zonked (zonk n0)) (go (arr n eq p))))
+    base = unify t (arr z eq z)
+    ind = (
+      (conj
+        (unify t (arr (s n) eq (s p)))
+        (go (arr n eq p)))
     ) where n, p = Var!, Var!
-    (label (-> 'disj') (disj base ind)) log solver verbose:verbose
+    (disj base ind) log solver verbose:verbose
   # (s (s z)) = N?
   log = []
   solver = z3.Solver!
@@ -680,7 +704,7 @@ if __name__ == '__main__' =>
       import '/sys'
       for fname in files =>
         with fd = open fname 'r' =>
-          interpret fd.read! verbose:False
+          interpret fd.read! verbose:False depth:137
     otherwise =>
       raise NotImplementedError
   import '/argparse'
