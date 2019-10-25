@@ -338,15 +338,13 @@ query_env = fact_env
 
 # use_solver : term -> action
 use_solver = t -> log solver verbose:False ->
-  if verbose =>
-    print 'Trying to use solver on t =' t
-  while type t is Var and type t is type t.a and t != t.a =>
-    t := t.a
-  if verbose =>
-    print '2: type t =' (type t) 't =' (pp_zonked (zonk t))
-  if type t is Var and type t.a is SMT =>
+  if verbose => print 'Trying to use solver on t =' t
+  while type t is Var and type t is type t.a and t != t.a => t := t.a
+  if verbose => print '2: type t =' (type t) 't =' (pp_zonked (zonk t))
+  if type t is Var and type t.a is SMT => t := t.a
+  if type t is SMT =>
     if verbose => print 'Using solver!'
-    yield from (add t.a.a) log solver verbose:verbose
+    yield from (add t.a) log solver verbose:verbose
   if verbose => print 'Solver not applicable.'
 
 # ast_program = str * [ast_fact] * [ast_query]
