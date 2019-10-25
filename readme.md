@@ -154,9 +154,24 @@ map succ (z :: (X0 :: XS1)) = (X0 :: XS1)
 ```
 
 But it's still weird: the point where `XS` is ground isn't exactly a 'success':
-there's still one subgoal remaining `map succ (X0 :: XS1) = XS1` and that subgoal
+there's still one subgoal remaining (`map succ (X0 :: XS1) = XS1`) and that subgoal
 can never be cleared. So to get an `XS` out we have to (1) fiddle with clause order
 and (2) consider hitting max depth to be some sort of 'soft success' where the repl
 says 'not all subgoals are cleared and this could be completely inconsistent, but
 here is what the instantiations look like'. Both are pretty annoying.
 
+(1) could be fixed by literally brute-forcing all orderings e.g.
+
+```py
+go (P /\ Q /\ .., attempts=0)
+  if attempts == factorial (len (P /\ Q /\ ..))
+    fail
+  try
+    go P
+    go (Q /\ ..)
+  except HitMaxDepth
+    go (next permutation of P /\ Q /\ .., attempts+1)
+```
+
+(2) doesn't seem like it can be fixed without a fancy rule for clearing
+subgoals that produce infinite structures (something something coinduction).
