@@ -162,7 +162,7 @@ here is what the instantiations look like'. Both are pretty annoying.
 
 (1) could be fixed by literally brute-forcing all orderings e.g.
 
-```py
+```
 go (P /\ Q /\ .., attempts=0)
   if attempts == factorial (len (P /\ Q /\ ..))
     fail
