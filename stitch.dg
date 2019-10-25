@@ -29,6 +29,15 @@ SMT = subclass object where
   __init__ = self a ->
     self.a = a
     None
+  __add__ = self other -> SMT (self.a + other.a)
+  __sub__ = self other -> SMT (self.a - other.a)
+  __mul__ = self other -> SMT (self.a * other.a)
+  __div__ = self other -> SMT (self.a / other.a)
+  __lt__ = self other -> SMT (self.a < other.a)
+  __gt__ = self other -> SMT (self.a > other.a)
+  __le__ = self other -> SMT (self.a <= other.a)
+  __ge__ = self other -> SMT (self.a >= other.a)
+  __eq__ = self other -> SMT (self.a == other.a)
 
 # log = mutable list of thunks that will undo destructive updates (aka trail)
 # solver = SMT solver
@@ -44,27 +53,24 @@ run = f ->
 
 # unify : term term -> action
 unify = l r -> log solver verbose:False -> (
-  if verbose =>
-    print 'vvv' (pp_zonked (zonk l))
-    print '^^^' (pp_zonked (zonk r))
   n = len log
   solver.push!
   except
     err =>
       unify_ log solver verbose l r nop nop
-      if verbose => print 'OK'
+      if verbose => print 'Unify OK'
       yield None
     err :: No =>
       undo log n
       solver.pop!
-      if verbose => print 'X'
+      if verbose => print 'Unify X'
 ) where
   No = subclass Exception where
   nop = _ -> None
   # set_l x stores x in l's parent location
   #   i.e. pointer graph goes (p -> l) x ==set_l x==> (p -> x) l
   #   l isn't destroyed, but just isolated from the old reference graph
-  unify_ = log solver verbose l r set_l set_r ->
+  unify_ = log solver verbose l r set_l set_r -> go l r set_l set_r where
     # helpers
     set_var = v -> x ->
       if verbose => print (len log) 'mutating' v ':=' x
@@ -79,38 +85,46 @@ unify = l r -> log solver verbose:False -> (
       log.append (-> set_e e)
       set_e v
       go v.a e (set_var v) nop
-    go = l r set_l set_r -> if
-      # simple cases
-      l is r => None
-      type l is type r is int and l == r => None
-      type l is type r is list and len l == len r =>
-        for (i, (x, y)) in enumerate (zip l r) =>
-          go x y (set_arr l i) (set_arr r i)
-      # instantiate variables
-      type l is Var and l is l.a => inst l r
-      type r is Var and r is r.a => inst r l
-      # follow var -> var links (find representative)
-      type l is Var is type l.a => go l.a r (set_var l) set_r
-      type r is Var is type r.a => go r.a l (set_var r) set_l
-      # var ~ non-var with var -> term:
-      # - store var in non-var's parent pointer location
-      # - check term ~ non-var
-      # this allows for unification of cyclic structures
-      type l is Var => cyc l r set_r
-      type r is Var => cyc r l set_l
-      # smt ~ smt: add equality constraint and check sat
-      type l is type r is SMT =>
-        solver.add (l.a == r.a)
-        if solver.check() != z3.sat => raise No
-      otherwise => raise No
-    go l r set_l set_r
+    go = l r set_l set_r ->
+      if verbose =>
+        print 'vvv' (pp_zonked (zonk l)) '::' (type (zonk l))
+        print '^^^' (pp_zonked (zonk r)) '::' (type (zonk r))
+      if # simple cases
+        l is r => None
+        type l is type r is int and l == r => None
+        type l is type r is list and len l == len r =>
+          for (i, (x, y)) in enumerate (zip l r) =>
+            go x y (set_arr l i) (set_arr r i)
+        # instantiate variables
+        type l is Var and l is l.a => inst l r
+        type r is Var and r is r.a => inst r l
+        # follow var -> var links (find representative)
+        type l is Var is type l.a => go l.a r (set_var l) set_r
+        type r is Var is type r.a => go r.a l (set_var r) set_l
+        # var ~ non-var with var -> term:
+        # - store var in non-var's parent pointer location
+        # - check term ~ non-var
+        # this allows for unification of cyclic structures
+        type l is Var => cyc l r set_r
+        type r is Var => cyc r l set_l
+        # smt ~ smt: add equality constraint and check sat
+        type l is type r is SMT =>
+          solver.add (l.a == r.a)
+          if verbose =>
+            print 'assert' (l.a == r.a)
+            print 'solver =' solver
+            print 'solver.check! =' solver.check!
+          if solver.check! != z3.sat => raise No
+        otherwise => raise No
 
 # revert all actions taken from log[n] onwards
 undo = log n -> while len log > n => log.pop! !
 
 # add : z3 formula .. -> action
 add = *:fs -> log solver verbose:False ->
-  if verbose => print 'assert' sep:' /\\ ' *:fs
+  if verbose =>
+    print 'assert' end:' '
+    print sep:' /\\ ' *:fs
   solver.add *:fs
   if solver.check! == z3.sat => yield None
 
@@ -142,12 +156,12 @@ zonk = t verbose:False -> go t where
       done.add t
       if (verbose => (hex (id t), go t.a)) (otherwise => go t.a)
     type t is list => list (map go t)
-    type t is SMT => str t.a
+    type t is SMT => '{' + str t.a + '}'
     otherwise => raise ValueError ("Can't zonk " + str(t))
 
 pp_zonked = t -> if
   type t is str => t
-  otherwise => '[' + ' '.join(map pp_zonked t) + ']'
+  otherwise => '[' + ' '.join (map pp_zonked t) + ']'
 
 parse = s ->
   import '/lark'
@@ -173,14 +187,16 @@ parse = s ->
   ?smt_rel: smt_sum | smt_sum REL smt_sum | "(" smt_form ")" | NOT smt_rel
   ?smt_sum: smt_prod | smt_sum ADD smt_prod
   ?smt_prod: _smt_atom | smt_prod MUL _smt_atom
-  _smt_atom: VAR | "(" smt_rel ")"
+  _smt_atom: VAR | smt_int | "(" smt_rel ")"
+  smt_int: INT
 
   NOT: "~"
-  REL: "=" | "/=" | "<" | ">" | "<=" | ">="
+  REL: "<=" | ">="| "/=" | "<" | ">" | "=" 
   ADD: "+" | "-"
   MUL: "*" | "/"
 
   LIT: /(?!<==)[^-(){},;.?A-Z\\s][^(){},;.?\\s]*/
+  INT: /[0-9]+/
   VAR: /[A-Z][a-zA-Z0-9_'-]*/ | "_"
 
   COMMENT: /--[^\\n]+/
@@ -204,6 +220,7 @@ parse = s ->
       len children == 1 => translate children !! 0
       otherwise => translate children
     smt = self children -> 'smt', translate children !! 0
+    smt_int = self [child] -> int child
     smt_form = self children -> ('implies',) + translate children
     smt_or = self children -> ('or',) + translate children
     smt_and = self children -> ('and',) + translate children
@@ -222,8 +239,43 @@ parse = s ->
 den_term = t -> env -> if
   type t is str => env!!t
   type t is int => t
-  type t is tuple => list (map (s -> (den_term s) env) t)
+  type t is tuple =>
+    hd, *tl = t
+    if hd == 'smt' => (den_formula (tl!!0)) env
+       otherwise => list (map (s -> (den_term s) env) t)
   otherwise => raise ValueError ('Bad term: ' + str t)
+
+# den_op : str -> SMT SMT -> SMT
+den_op = (
+  dict'
+    ('implies', z3.Implies)
+    ('and', lift z3.And)
+    ('or', lift z3.Or)
+    ('+', [x, y] -> x + y)
+    ('-', [x, y] -> x - y)
+    ('*', [x, y] -> x * y)
+    ('/', [x, y] -> x / y)
+    ('not', lift z3.Not)
+    ('>', [x, y] -> x > y)
+    ('<', [x, y] -> x < y)
+    ('>=', [x, y] -> x >= y)
+    ('<=', [x, y] -> x <= y)
+    ('=', [x, y] -> x == y)
+) where lift = z3op -> fs -> SMT (z3op (list (map (f -> f.a) fs)))
+
+# a formula' is a function that is waiting for an environment to fill in formula vars
+# formula' = (Dict str term) -> z3.Formula
+den_formula = f -> env -> (if
+  type f is tuple and f!!0 in den_op =>
+    hd, *tl = f
+    args = (list (map (c -> (den_formula c) env) tl))
+    #print 'op =' hd 'args ='
+    #  (list (map (c -> if (type c is SMT => c.a, c) (otherwise => c)) args))
+    (den_op!!hd) args
+  type f is int => SMT f
+  type f is str => env!!f
+  otherwise => raise ValueError ('Bad formula: ' + str t)
+) where
 
 # an action' is an action waiting for metas + recursive callback
 # action' = program (Dict str term) -> action
@@ -231,26 +283,28 @@ den_term = t -> env -> if
 den_clause = (clause = hd, *tl) -> go env -> if
   hd == 'con' => conj *:(map (c -> (den_clause c) go env) tl)
   hd == 'dis' => disj *:(map (c -> (den_clause c) go env) tl)
-  hd == 'smt' => raise NotImplementedError
-  otherwise => go (list (map (c -> (den_term c) env) clause))
+  otherwise => go ((den_term clause) env)
 
 # ast_fact = [ast_clause] where the first element is ast_term
-# fact_vars : ast_fact -> Set str
-fact_vars = terms -> collect clause_vars terms where
-  collect = f xs -> foldl (|) (set []) (map f xs)
-  clause_vars = t -> if
-    type t is str => set [t]
-    type t is int => set []
+# fact_vars : ast_fact -> Set str * Set str
+fact_vars = terms -> collect (clause_vars False) terms where
+  collect = f xs -> tuple (map (bind foldl (|) (set [])) (zip *:(map f xs)))
+  clause_vars = in_formula -> t -> if
+    type t is str => if (in_formula => set [], set [t]) (otherwise => set [t], set [])
+    type t is int => set [], set []
     type t is tuple =>
       hd, *tl = t
-      if hd == 'con' or hd == 'dis' => collect clause_vars tl
-         otherwise => collect clause_vars t
+      if hd in set ('con', 'dis', 'smt') => collect (clause_vars (hd == 'smt')) tl
+         in_formula and hd in set den_op.keys! => collect (clause_vars in_formula) tl
+         otherwise => collect (clause_vars in_formula) t
     otherwise => raise ValueError ('Bad AST clause: ' + str t)
 
-# nablas : Set str -> Dict str (fresh Var)
-nablas = dict <- bind map (v -> v, Var!)
+# nablas : Set str * Set str -> Dict str term
+nablas = (metas, formula_vars) -> dict (metas + formula_vars) where
+  metas = list (map (v -> v, Var!) metas)
+  formula_vars = list (map (v -> v, SMT (z3.Int nab!)) formula_vars)
 
-# fact_env : ast_fact -> Dict str Var
+# fact_env : ast_fact -> Dict str term
 fact_env = nablas <- fact_vars
 
 # a program' is a program that is waiting for a program to fill out 'recursive calls'
@@ -282,11 +336,24 @@ query_vars = fact_vars
 # query_env : ast_query -> Dict str Var
 query_env = fact_env
 
+# use_solver : term -> action
+use_solver = t -> log solver verbose:False ->
+  if verbose =>
+    print 'Trying to use solver on t =' t
+  while type t is Var and type t is type t.a and t != t.a =>
+    t := t.a
+  if verbose =>
+    print '2: type t =' (type t) 't =' (pp_zonked (zonk t))
+  if type t is Var and type t.a is SMT =>
+    if verbose => print 'Using solver!'
+    yield from (add t.a.a) log solver verbose:verbose
+  if verbose => print 'Solver not applicable.'
+
 # ast_program = str * [ast_fact] * [ast_query]
-# den_program : ast_program -> Gen (Dict str Var * action)
+# den_program : ast_program -> Gen (Dict str term * action)
 den_program = (_, facts, queries) ->
   go = t -> log solver verbose:False ->
-    (((den_facts facts) go) t) log solver verbose:verbose
+    (disj (use_solver t) (((den_facts facts) go) t)) log solver verbose:verbose
   map (q -> (env = query_env q), (den_query q) go env) queries
 
 # label : str action -> action
@@ -301,11 +368,16 @@ evaluate = p verbose:False ->
     log = []
     solver = z3.Solver!
     for _ in action log solver verbose:verbose =>
-      for (name, x) in xs.items! =>
-        print name ':=' (pp_zonked (zonk x))
+      if solver.check! == z3.sat => # TODO: more solutions!
+        for (name, x) in xs.items! =>
+          print name ':=' (pp_zonked (zonk x))
+        print solver.model!
 
 # interpret : str -> None
-interpret = evaluate <- parse
+interpret = s verbose:False ->
+  ast = parse s
+  if verbose => print 'ast =' ast
+  evaluate ast verbose:verbose
 
 # program = term -> action
 # trace : program -> program
@@ -540,7 +612,7 @@ test = ->
   test_exhaustive!
   test_app!
   test_conj_back!
-  test_smt!
+  #test_smt!
 
   res = parse '''
     -- Concatenate two lists
@@ -591,13 +663,25 @@ test = ->
   print res
   evaluate res
 
+  res = parse '''
+    -- Square root
+    sqrt {N * N} = {N}.
+
+    -- Cube root
+    cbrt {N * N * N} = {N}.
+
+    sqrt {25} = {K}, cbrt {125} = {K}?
+  '''
+  print res
+  evaluate res verbose:False
+
 if __name__ == '__main__' =>
   interpret_all = files -> if
     len files > 0 =>
       import '/sys'
       for fname in files =>
         with fd = open fname 'r' =>
-          interpret fd.read!
+          interpret fd.read! verbose:False
     otherwise =>
       raise NotImplementedError
   import '/argparse'
