@@ -13,7 +13,8 @@ map F (X :: XS) = (Y :: YS) <== F X = Y, map F XS = YS.
 succ Z = (s Z).
 
 -- Doesn't seem to be possible even with iterative deepening
-NATS =:= (z :: NATS1), map succ NATS = NATS1, take (s (s z)) NATS = XS?
+-- NATS =:= (z :: NATS1), map succ NATS = NATS1, take (s (s z)) NATS = XS?
+take (s (s z)) NATS = XS, NATS =:= (z :: NATS1), map succ NATS = NATS1?
 
 -- map succ (z :: NATS1) = NATS1
 --   NATS1 := s z :: YS.
