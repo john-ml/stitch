@@ -94,7 +94,7 @@ a way better solution is probably to cycle between the conjuncts and let each ha
 a turn every once in a while (maybe prioritizing certain ones over others by
 some heuristic about how much "progress" is made (e.g. a combination of number
 of instantiations, branching factor, rate at which metavariables are being
-introduced, etc.).
+introduced, etc.)).
 
 (2) doesn't seem like it can be fixed without a fancy rule for clearing
 subgoals that produce infinite structures (something something coinduction).
