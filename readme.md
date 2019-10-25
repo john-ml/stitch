@@ -5,9 +5,9 @@ A prolog with:
 - ~~Iterative deepening~~Tricks for complete search<sup>[1](https://github.com/johnli0135/stitch/blob/master/search-strategies.md)</sup>
 - SMT solver for complicated constraints
 
-Currently it
+~~Currently it
 [works](https://github.com/johnli0135/stitch/blob/master/stitch.py),
-but you have to write in abstract syntax.
+but you have to write in abstract syntax.~~ It works! See 
 
 ## Planned syntax
 
