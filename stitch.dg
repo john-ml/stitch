@@ -198,7 +198,7 @@ parse = s ->
   ADD: "+" | "-"
   MUL: "*" | "/"
 
-  LIT: /(?!<==)[^-(){},;.?A-Z\\s_][^(){},;.?\\s_]*/
+  LIT: /(?!<==)[^-(){},;.?A-Z\\s_][^(){},;.?\\s_]*|->/
   INT: /[0-9]+/
   VAR: /[A-Z][a-zA-Z0-9_'-]*/ | "_"
 
@@ -704,7 +704,7 @@ if __name__ == '__main__' =>
       import '/sys'
       for fname in files =>
         with fd = open fname 'r' =>
-          interpret fd.read! verbose:False depth:137
+          interpret fd.read! verbose:False depth:5
     otherwise =>
       raise NotImplementedError
   import '/argparse'
