@@ -2,7 +2,6 @@
 
 A prolog with:
 - Unification over cyclic data
-- ~~Iterative deepening~~Tricks for complete search<sup>[1](https://github.com/johnli0135/stitch/blob/master/search-strategies.md)</sup>
 - SMT solver for complicated constraints
 
 [Examples.](https://github.com/johnli0135/stitch/blob/master/examples)
